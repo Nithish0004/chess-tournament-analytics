@@ -6,7 +6,8 @@ import {
   updatePlayer,
   getPlayerAnalytics,
   createPlayerSchema,
-  updatePlayerSchema
+  updatePlayerSchema,
+  checkNoDirectRatingEdit
 } from '../controllers/playerController.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { validateBody } from '../middleware/validateMiddleware.js';
@@ -17,6 +18,6 @@ router.get('/', getPlayers);
 router.post('/', requireAuth, validateBody(createPlayerSchema), createPlayer);
 router.get('/:id/analytics', getPlayerAnalytics);
 router.get('/:id', getPlayerById);
-router.put('/:id', requireAuth, validateBody(updatePlayerSchema), updatePlayer);
+router.put('/:id', requireAuth, checkNoDirectRatingEdit, validateBody(updatePlayerSchema), updatePlayer);
 
 export default router;

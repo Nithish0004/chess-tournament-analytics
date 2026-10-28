@@ -142,7 +142,7 @@ node scripts/test-all-endpoints.js
 | `GET` | `/api/players` | Public | List all players (supports `?q=` name search) |
 | `POST` | `/api/players` | Protected | Create a new player |
 | `GET` | `/api/players/:id` | Public | Get player details by ID |
-| `PUT` | `/api/players/:id` | Protected | Update player details |
+| `PUT` | `/api/players/:id` | Protected | Update player details (ratings immutable; rejecting `current_rating` with 400) |
 | `GET` | `/api/players/:id/analytics` | Public | Returns `v_player_performance`, `v_rating_progression`, and tournament history |
 
 ### Tournaments
@@ -176,15 +176,15 @@ node scripts/test-all-endpoints.js
 ## Architectural Rules & Implementation Details
 
 1. **Parameterised Queries**: Every database query strictly uses `?` placeholders with parameter arrays. String concatenation is never used to construct SQL statements.
-2. **Result Recording via Stored Procedure**: Results are recorded **ONLY** by calling `CALL record_result(?, ?)`. The application does not manually calculate Elo ratings or tournament points; the database transaction updates ratings, logs `rating_history`, updates game and round statuses, and calls `refresh_standings(p_tid)`.
+2. **Result Recording via Stored Procedure**: Results are recorded **ONLY** by calling `CALL record_result(?, ?)`. The application does not manually calculate Elo ratings or tournament points; the database transaction updates ratings, logs `rating_history`, updates game and round statuses, and calls `refresh_standings(p_tid)`. Ratings cannot be edited directly via `PUT /api/players/:id`.
 3. **Database Views**:
    - `v_leaderboard`: Used for `/api/tournaments/:id/standings`.
    - `v_player_performance`: Used for `/api/players/:id/analytics`.
    - `v_rating_progression`: Used for player rating graphs and top 5 progression in dashboard.
    - `v_upsets`: Used for tournament analytics and dashboard upset tracking.
 4. **Central Error Handler Mapping**:
-   - `1062` (`ER_DUP_ENTRY`) $\rightarrow$ **409 Conflict**
-   - `1452` (`ER_NO_REFERENCED_ROW_2`) $\rightarrow$ **409 Conflict**
+   - `1062` (`ER_DUP_ENTRY`) $\rightarrow$ **409 Conflict** with generic message `"Duplicate entry"`
+   - `1452` (`ER_NO_REFERENCED_ROW_2`) $\rightarrow$ **409 Conflict** with generic message `"Referenced record does not exist"`
    - `3819` (`ER_CHECK_CONSTRAINT_VIOLATED`) $\rightarrow$ **400 Bad Request**
    - `1644` (`ER_SIGNAL_EXCEPTION` from MySQL triggers/procedures) $\rightarrow$ **400 Bad Request** with MySQL error message
    - Everything else $\rightarrow$ **500 Internal Server Error** with generic message

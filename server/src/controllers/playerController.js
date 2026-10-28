@@ -13,11 +13,20 @@ export const updatePlayerSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   email: z.string().trim().email().max(120).optional(),
   country: z.string().trim().max(60).optional().nullable(),
-  date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date_of_birth must be in YYYY-MM-DD format').optional().nullable(),
-  current_rating: z.number().int().min(100).max(3500).optional()
+  date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date_of_birth must be in YYYY-MM-DD format').optional().nullable()
 }).refine(data => Object.keys(data).length > 0, {
   message: 'At least one field must be provided for update'
 });
+
+export const checkNoDirectRatingEdit = (req, res, next) => {
+  if (req.body && req.body.current_rating !== undefined) {
+    return res.status(400).json({
+      error: 'Rating cannot be edited directly',
+      message: 'Rating cannot be edited directly'
+    });
+  }
+  next();
+};
 
 export const getPlayers = async (req, res, next) => {
   const { q } = req.query;
@@ -85,6 +94,13 @@ export const updatePlayer = async (req, res, next) => {
   const { id } = req.params;
   const updates = req.body;
 
+  if (updates && updates.current_rating !== undefined) {
+    return res.status(400).json({
+      error: 'Rating cannot be edited directly',
+      message: 'Rating cannot be edited directly'
+    });
+  }
+
   try {
     // Verify player exists
     const [existing] = await pool.query('SELECT player_id FROM player WHERE player_id = ?', [id]);
@@ -92,7 +108,7 @@ export const updatePlayer = async (req, res, next) => {
       return res.status(404).json({ error: 'Player not found' });
     }
 
-    const allowedColumns = ['name', 'email', 'country', 'date_of_birth', 'current_rating'];
+    const allowedColumns = ['name', 'email', 'country', 'date_of_birth'];
     const fields = [];
     const values = [];
 

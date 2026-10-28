@@ -4,15 +4,15 @@ export const errorHandler = (err, req, res, next) => {
 
   if (errno === 1062) {
     return res.status(409).json({
-      error: 'Conflict: Duplicate entry',
-      message: err.sqlMessage || err.message
+      error: 'Duplicate entry',
+      message: 'Duplicate entry'
     });
   }
 
   if (errno === 1452) {
     return res.status(409).json({
-      error: 'Conflict: Foreign key constraint failed',
-      message: err.sqlMessage || err.message
+      error: 'Referenced record does not exist',
+      message: 'Referenced record does not exist'
     });
   }
 

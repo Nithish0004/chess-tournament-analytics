@@ -121,7 +121,29 @@ const runTests = async () => {
       body: JSON.stringify({ country: 'Russia' })
     });
     const updatedPlayer = await putPlayerRes.json();
-    record('PUT /api/players/:id', putPlayerRes.status === 200 && updatedPlayer.country === 'Russia');
+    record('PUT /api/players/:id (allowed fields)', putPlayerRes.status === 200 && updatedPlayer.country === 'Russia');
+
+    // 8b. PUT /api/players/:id attempting to edit current_rating directly -> must 400 and NOT change rating
+    const putRatingRes = await fetch(`${BASE_URL}/api/players/${testPlayerId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ current_rating: 2999 })
+    });
+    const putRatingJson = await putRatingRes.json();
+
+    // Verify rating in DB was NOT changed
+    const verifyPlayerRes = await fetch(`${BASE_URL}/api/players/${testPlayerId}`);
+    const verifyPlayer = await verifyPlayerRes.json();
+
+    record('PUT /api/players/:id with current_rating rejected (returns 400 & unchanged rating)',
+      putRatingRes.status === 400 &&
+      putRatingJson.error === 'Rating cannot be edited directly' &&
+      verifyPlayer.current_rating !== 2999,
+      `status: ${putRatingRes.status}, rating stayed: ${verifyPlayer.current_rating}`
+    );
 
     // 9. GET /api/players/:id/analytics
     // Let's test on player 1 (Magnus) who has demo games
@@ -294,7 +316,7 @@ const runTests = async () => {
     // --- Error Mapping Verification ---
     console.log('\n--- Error Mapping Verification ---');
 
-    // MySQL 1062: Duplicate entry (e.g. duplicate registration) -> 409
+    // MySQL 1062: Duplicate entry (e.g. duplicate registration) -> 409 with generic message
     const dupRegRes = await fetch(`${BASE_URL}/api/tournaments/${testTournamentId}/register`, {
       method: 'POST',
       headers: {
@@ -303,9 +325,14 @@ const runTests = async () => {
       },
       body: JSON.stringify({ player_id: testPlayerId })
     });
-    record('MySQL 1062 -> 409 (Duplicate registration)', dupRegRes.status === 409);
+    const dupRegJson = await dupRegRes.json();
+    record('MySQL 1062 -> 409 with generic "Duplicate entry" message',
+      dupRegRes.status === 409 &&
+      dupRegJson.message === 'Duplicate entry' &&
+      !dupRegJson.message.includes('for key')
+    );
 
-    // MySQL 1452: Foreign key fails -> 409
+    // MySQL 1452: Foreign key fails -> 409 with generic message
     const fkRes = await fetch(`${BASE_URL}/api/tournaments/${testTournamentId}/register`, {
       method: 'POST',
       headers: {
@@ -314,7 +341,12 @@ const runTests = async () => {
       },
       body: JSON.stringify({ player_id: 999999 })
     });
-    record('MySQL 1452 -> 409 (Foreign key constraint)', fkRes.status === 409);
+    const fkResJson = await fkRes.json();
+    record('MySQL 1452 -> 409 with generic "Referenced record does not exist" message',
+      fkRes.status === 409 &&
+      fkResJson.message === 'Referenced record does not exist' &&
+      !fkResJson.message.includes('foreign key constraint fails')
+    );
 
     // MySQL 3819: Check constraint violated -> 400
     const checkRes = await fetch(`${BASE_URL}/api/tournaments/${testTournamentId}`, {

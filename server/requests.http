@@ -53,11 +53,19 @@ Authorization: Bearer {{authToken}}
 Content-Type: application/json
 
 {
-  "country": "Norway",
-  "current_rating": 2835
+  "country": "Norway"
 }
 
-### 2.6 Get player analytics (performance, progression, tournament history)
+### 2.6 Attempt to edit player rating directly (Fails with 400 - ratings change ONLY via record_result)
+PUT {{baseUrl}}/api/players/1
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "current_rating": 2900
+}
+
+### 2.7 Get player analytics (performance, progression, tournament history)
 GET {{baseUrl}}/api/players/1/analytics
 
 
@@ -160,7 +168,7 @@ GET {{baseUrl}}/api/dashboard
 ### 6. ERROR MAPPING DEMONSTRATIONS
 ###
 
-### 6.1 MySQL 1062 -> 409 Conflict (Duplicate Registration)
+### 6.1 MySQL 1062 -> 409 Conflict (Generic: "Duplicate entry")
 POST {{baseUrl}}/api/tournaments/1/register
 Authorization: Bearer {{authToken}}
 Content-Type: application/json
@@ -169,7 +177,7 @@ Content-Type: application/json
   "player_id": 1
 }
 
-### 6.2 MySQL 1452 -> 409 Conflict (Foreign Key Constraint)
+### 6.2 MySQL 1452 -> 409 Conflict (Generic: "Referenced record does not exist")
 POST {{baseUrl}}/api/tournaments/1/register
 Authorization: Bearer {{authToken}}
 Content-Type: application/json
@@ -187,13 +195,22 @@ Content-Type: application/json
   "end_date": "2020-01-01"
 }
 
-### 6.4 MySQL 1644 -> 400 Bad Request with custom message (Result already recorded)
+### 6.4 MySQL 1644 -> 400 Bad Request with custom signal message (Result already recorded)
 POST {{baseUrl}}/api/games/1/result
 Authorization: Bearer {{authToken}}
 Content-Type: application/json
 
 {
   "outcome": "WHITE"
+}
+
+### 6.5 Direct Rating Edit Rejected -> 400 Bad Request ("Rating cannot be edited directly")
+PUT {{baseUrl}}/api/players/1
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "current_rating": 3000
 }
 
 ### 6.5 Zod Validation Error -> 400 Bad Request
