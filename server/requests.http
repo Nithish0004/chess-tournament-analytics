@@ -126,6 +126,9 @@ GET {{baseUrl}}/api/tournaments/1/standings
 ### 3.10 Get tournament analytics (total games, outcomes, upsets, rating changes)
 GET {{baseUrl}}/api/tournaments/1/analytics
 
+### 3.11 Get tournament predictions (Public - from prediction table joined with player)
+GET {{baseUrl}}/api/tournaments/1/predictions
+
 
 ###
 ### 4. ROUNDS & GAMES

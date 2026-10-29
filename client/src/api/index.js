@@ -86,6 +86,11 @@ export const getTournamentAnalyticsApi = async (tournamentId) => {
   return data;
 };
 
+export const getTournamentPredictionsApi = async (tournamentId) => {
+  const { data } = await api.get(`/tournaments/${tournamentId}/predictions`);
+  return data;
+};
+
 // Rounds & Games
 export const getGamesByRoundApi = async (roundId) => {
   const { data } = await api.get(`/rounds/${roundId}/games`);

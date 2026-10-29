@@ -301,6 +301,28 @@ const runTests = async () => {
       Array.isArray(tourneyAnalytics.rating_changes)
     );
 
+    // 22b. GET /api/tournaments/:id/predictions
+    const getPredsRes = await fetch(`${BASE_URL}/api/tournaments/1/predictions`);
+    const predsList = await getPredsRes.json();
+    const isSortedDesc = predsList.every((val, i, arr) => !i || arr[i - 1].predicted_score >= val.predicted_score);
+    const hasRequiredFields = predsList.length > 0 && predsList.every(p =>
+      p.player_id !== undefined &&
+      typeof p.name === 'string' &&
+      typeof p.current_rating === 'number' &&
+      typeof p.predicted_score === 'number' &&
+      typeof p.model_version === 'string' &&
+      p.created_at !== undefined
+    );
+
+    record('GET /api/tournaments/:id/predictions (public, ordered by predicted_score DESC)',
+      getPredsRes.status === 200 && Array.isArray(predsList) && isSortedDesc && hasRequiredFields,
+      `found ${predsList.length} predictions, top score: ${predsList[0]?.predicted_score} by ${predsList[0]?.name}`
+    );
+
+    // 22c. GET /api/tournaments/999999/predictions (non-existent tournament returns 404)
+    const getMissingPredsRes = await fetch(`${BASE_URL}/api/tournaments/999999/predictions`);
+    record('GET /api/tournaments/:id/predictions (not found returns 404)', getMissingPredsRes.status === 404);
+
     // 23. GET /api/dashboard
     const getDashboardRes = await fetch(`${BASE_URL}/api/dashboard`);
     const dashboardJson = await getDashboardRes.json();

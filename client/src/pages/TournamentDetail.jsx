@@ -14,8 +14,19 @@ import {
   Loader2,
   ArrowLeft,
   ChevronDown,
-  UserCheck
+  UserCheck,
+  Sparkles,
+  Info
 } from 'lucide-react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid
+} from 'recharts';
 import {
   getTournamentByIdApi,
   updateTournamentApi,
@@ -28,6 +39,7 @@ import {
   recordResultApi,
   getStandingsApi,
   getTournamentAnalyticsApi,
+  getTournamentPredictionsApi,
   getPlayersApi
 } from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -38,7 +50,7 @@ import { Modal } from '../components/Modal';
 export const TournamentDetail = () => {
   const { id } = useParams();
   const [tournament, setTournament] = useState(null);
-  const [activeTab, setActiveTab] = useState('standings'); // standings, games, registrations, analytics
+  const [activeTab, setActiveTab] = useState('standings'); // standings, games, registrations, analytics, predictions
   const [loading, setLoading] = useState(true);
 
   // Tab data states
@@ -47,6 +59,7 @@ export const TournamentDetail = () => {
   const [roundGames, setRoundGames] = useState({}); // { [roundId]: gamesList }
   const [registrations, setRegistrations] = useState([]);
   const [analytics, setAnalytics] = useState(null);
+  const [predictions, setPredictions] = useState([]);
   const [allPlayers, setAllPlayers] = useState([]);
 
   // Modals & form states
@@ -128,6 +141,15 @@ export const TournamentDetail = () => {
     }
   }, []);
 
+  const fetchPredictions = useCallback(async () => {
+    try {
+      const data = await getTournamentPredictionsApi(id);
+      setPredictions(data);
+    } catch {
+      // Non-critical background fetch if predictions not yet generated
+    }
+  }, [id]);
+
   // Initial load
   useEffect(() => {
     const init = async () => {
@@ -138,12 +160,13 @@ export const TournamentDetail = () => {
         fetchRoundsAndGames(),
         fetchRegistrations(),
         fetchAnalytics(),
-        fetchAllPlayers()
+        fetchAllPlayers(),
+        fetchPredictions()
       ]);
       setLoading(false);
     };
     init();
-  }, [fetchTournament, fetchStandings, fetchRoundsAndGames, fetchRegistrations, fetchAnalytics, fetchAllPlayers]);
+  }, [fetchTournament, fetchStandings, fetchRoundsAndGames, fetchRegistrations, fetchAnalytics, fetchAllPlayers, fetchPredictions]);
 
   // Status changer for logged-in admin
   const handleStatusChange = async (newStatus) => {
@@ -241,7 +264,8 @@ export const TournamentDetail = () => {
         fetchRoundsAndGames(),
         fetchStandings(),
         fetchAnalytics(),
-        fetchTournament()
+        fetchTournament(),
+        fetchPredictions()
       ]);
     } catch (err) {
       showToast(err.userMessage || 'Failed to record game result', 'error');
@@ -340,7 +364,8 @@ export const TournamentDetail = () => {
           { key: 'standings', label: 'Standings & Leaderboard', icon: Trophy, count: standings.length },
           { key: 'games', label: 'Rounds & Games', icon: Swords, count: rounds.length },
           { key: 'registrations', label: 'Registrations', icon: Users, count: registrations.length },
-          { key: 'analytics', label: 'Tournament Analytics', icon: TrendingUp }
+          { key: 'analytics', label: 'Tournament Analytics', icon: TrendingUp },
+          { key: 'predictions', label: 'Predictions', icon: Sparkles, count: predictions.length }
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.key;
@@ -818,6 +843,183 @@ export const TournamentDetail = () => {
               </table>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* TAB 5: PREDICTIONS */}
+      {activeTab === 'predictions' && (
+        <div className="space-y-6">
+          {/* Note Banner */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-indigo-950/40 border border-indigo-800/40 text-indigo-200">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <p className="text-xs sm:text-sm font-medium">
+                Predictions are estimates from a statistical model trained on simulated data.
+              </p>
+            </div>
+            {predictions.length > 0 && (
+              <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 font-mono text-xs text-slate-300">
+                <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800">
+                  Model: <span className="text-indigo-400 font-bold">{predictions[0].model_version}</span>
+                </span>
+                <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400">
+                  {new Date(predictions[0].created_at).toLocaleDateString()} {new Date(predictions[0].created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {predictions.length === 0 ? (
+            <div className="p-12 text-center text-slate-400 bg-slate-900/60 rounded-3xl border border-slate-800 shadow-xl">
+              <Sparkles className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+              <h3 className="text-base font-bold text-slate-200">No Predictions Available</h3>
+              <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                No forecasts have been generated for this tournament yet. Predictions are calculated for active tournaments with registered competitors.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Bar Chart */}
+              <div className="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl backdrop-blur-md">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                      <span>Predicted Performance by Player</span>
+                      <span className="text-xs font-mono font-medium text-indigo-400 bg-indigo-500/10 px-2.5 py-0.5 rounded-full border border-indigo-500/20">
+                        {predictions.length} Competitors
+                      </span>
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Average expected score against all registered tournament opponents (scale: 0.00 – 1.00)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="h-80 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={predictions}
+                      layout="vertical"
+                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} horizontal={false} />
+                      <XAxis
+                        type="number"
+                        domain={[0, 1]}
+                        stroke="#64748b"
+                        fontSize={11}
+                        tickFormatter={(v) => `${Math.round(v * 100)}%`}
+                      />
+                      <YAxis
+                        dataKey="name"
+                        type="category"
+                        stroke="#94a3b8"
+                        fontSize={12}
+                        tickLine={false}
+                        width={130}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#0f172a',
+                          borderColor: '#334155',
+                          borderRadius: '0.75rem',
+                          color: '#f8fafc',
+                          boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)'
+                        }}
+                        formatter={(value) => [`${value} (${Math.round(value * 100)}% expected win rate)`, 'Predicted Score']}
+                      />
+                      <Bar dataKey="predicted_score" fill="#6366f1" radius={[0, 6, 6, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Table */}
+              <div className="rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl backdrop-blur-md overflow-hidden">
+                <div className="p-6 border-b border-slate-800">
+                  <h3 className="text-base font-bold text-slate-100">Predicted Standings</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Ranked by model expected score. Higher score indicates stronger projected match win/draw equity.
+                  </p>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-950/60 text-slate-400 text-xs uppercase font-mono border-b border-slate-800">
+                      <tr>
+                        <th className="py-3.5 px-4 text-center w-16">#</th>
+                        <th className="py-3.5 px-4">Player</th>
+                        <th className="py-3.5 px-4 text-center">Current Elo</th>
+                        <th className="py-3.5 px-4 text-center">Predicted Score</th>
+                        <th className="py-3.5 px-4 text-center">Expected Rate</th>
+                        <th className="py-3.5 px-4">Model Version</th>
+                        <th className="py-3.5 px-4 text-right">Created At</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {predictions.map((p, idx) => (
+                        <tr key={p.player_id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3.5 px-4 text-center font-mono font-bold">
+                            {idx === 0 ? (
+                              <span className="text-amber-400 font-extrabold">🥇 1</span>
+                            ) : idx === 1 ? (
+                              <span className="text-slate-300 font-extrabold">🥈 2</span>
+                            ) : idx === 2 ? (
+                              <span className="text-amber-600 font-extrabold">🥉 3</span>
+                            ) : (
+                              <span className="text-slate-500">{idx + 1}</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 font-semibold text-slate-100">
+                            <Link to={`/players/${p.player_id}`} className="hover:text-indigo-400 transition-colors">
+                              {p.name}
+                            </Link>
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-300">
+                            {p.current_rating}
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-mono font-bold text-indigo-400 text-base">
+                            {Number(p.predicted_score).toFixed(2)}
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <div className="w-20 h-2 bg-slate-800 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-indigo-500 rounded-full"
+                                  style={{ width: `${Math.min(100, Math.max(0, p.predicted_score * 100))}%` }}
+                                />
+                              </div>
+                              <span className="text-xs font-mono text-slate-400">
+                                {Math.round(p.predicted_score * 100)}%
+                              </span>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-xs text-slate-400">
+                            <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800">
+                              {p.model_version}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right text-xs text-slate-500 font-mono">
+                            {p.created_at
+                              ? new Date(p.created_at).toLocaleString([], {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })
+                              : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

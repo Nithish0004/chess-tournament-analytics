@@ -352,3 +352,40 @@ export const getTournamentAnalytics = async (req, res, next) => {
     next(err);
   }
 };
+
+export const getTournamentPredictions = async (req, res, next) => {
+  const { id: tournamentId } = req.params;
+
+  try {
+    const [tournamentRows] = await pool.query(
+      'SELECT tournament_id FROM tournament WHERE tournament_id = ?',
+      [tournamentId]
+    );
+
+    if (tournamentRows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+
+    const [rows] = await pool.query(
+      `SELECT pr.player_id, p.name, p.current_rating, pr.predicted_score, pr.model_version, pr.created_at
+       FROM prediction pr
+       JOIN player p ON p.player_id = pr.player_id
+       WHERE pr.tournament_id = ?
+       ORDER BY pr.predicted_score DESC`,
+      [tournamentId]
+    );
+
+    const formattedRows = rows.map((row) => ({
+      player_id: row.player_id,
+      name: row.name,
+      current_rating: row.current_rating,
+      predicted_score: Number(row.predicted_score),
+      model_version: row.model_version,
+      created_at: row.created_at
+    }));
+
+    return res.json(formattedRows);
+  } catch (err) {
+    next(err);
+  }
+};

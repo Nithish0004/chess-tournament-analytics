@@ -10,3 +10,6 @@ dist/
 ml/.venv/
 __pycache__/
 *.log
+ml/.venv/
+__pycache__/
+*.log

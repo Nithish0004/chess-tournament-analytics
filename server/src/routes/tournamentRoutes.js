@@ -10,6 +10,7 @@ import {
   getRounds,
   getStandings,
   getTournamentAnalytics,
+  getTournamentPredictions,
   createTournamentSchema,
   updateTournamentSchema,
   registerPlayerSchema
@@ -33,5 +34,6 @@ router.get('/:id/rounds', getRounds);
 
 router.get('/:id/standings', getStandings);
 router.get('/:id/analytics', getTournamentAnalytics);
+router.get('/:id/predictions', getTournamentPredictions);
 
 export default router;
