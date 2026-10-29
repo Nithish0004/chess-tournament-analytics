@@ -1,0 +1,26 @@
+{
+  "best_model_name": "Logistic Regression (Multinomial)",
+  "model_version": "v1.0_logreg",
+  "classes": [
+    "draw",
+    "loss",
+    "win"
+  ],
+  "feature_columns": [
+    "old_rating",
+    "opp_old_rating",
+    "rating_diff",
+    "form_5",
+    "games_played_before",
+    "is_white"
+  ],
+  "metrics": {
+    "accuracy": 0.7023809523809523,
+    "log_loss": 0.7162144001286448,
+    "brier": 0.152053353060353,
+    "elo_baseline_brier": 0.16079512008477184
+  },
+  "train_samples": 500,
+  "test_samples": 168,
+  "total_games": 334
+}
