@@ -9,15 +9,19 @@ import {
   updatePlayerSchema,
   checkNoDirectRatingEdit
 } from '../controllers/playerController.js';
-import { requireAuth } from '../middleware/authMiddleware.js';
+import { authMiddleware, requireRole } from '../middleware/authMiddleware.js';
 import { validateBody } from '../middleware/validateMiddleware.js';
 
 const router = Router();
 
+// Every route requires an authenticated ACTIVE user
+router.use(authMiddleware);
+
 router.get('/', getPlayers);
-router.post('/', requireAuth, validateBody(createPlayerSchema), createPlayer);
 router.get('/:id/analytics', getPlayerAnalytics);
 router.get('/:id', getPlayerById);
-router.put('/:id', requireAuth, checkNoDirectRatingEdit, validateBody(updatePlayerSchema), updatePlayer);
+
+router.post('/', requireRole('ORGANIZER', 'ADMIN'), validateBody(createPlayerSchema), createPlayer);
+router.put('/:id', checkNoDirectRatingEdit, validateBody(updatePlayerSchema), updatePlayer);
 
 export default router;

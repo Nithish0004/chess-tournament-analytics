@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { pool } from '../config/db.js';
+import { checkTournamentOwnership } from '../middleware/authMiddleware.js';
 
 export const createTournamentSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(120),
@@ -39,9 +40,21 @@ export const registerPlayerSchema = z.object({
 export const getTournaments = async (req, res, next) => {
   try {
     const [rows] = await pool.query(
-      'SELECT tournament_id, name, format, start_date, end_date, status FROM tournament ORDER BY start_date DESC, tournament_id DESC'
+      `SELECT t.tournament_id, t.name, t.format, t.start_date, t.end_date, t.status, t.created_by,
+              COUNT(DISTINCT r.player_id) AS player_count,
+              COUNT(DISTINCT tr.round_id) AS rounds_count
+       FROM tournament t
+       LEFT JOIN registration r ON r.tournament_id = t.tournament_id
+       LEFT JOIN tournament_round tr ON tr.tournament_id = t.tournament_id
+       GROUP BY t.tournament_id, t.name, t.format, t.start_date, t.end_date, t.status, t.created_by
+       ORDER BY t.start_date DESC, t.tournament_id DESC`
     );
-    return res.json(rows);
+    const formatted = rows.map(r => ({
+      ...r,
+      player_count: Number(r.player_count),
+      rounds_count: Number(r.rounds_count)
+    }));
+    return res.json(formatted);
   } catch (err) {
     next(err);
   }
@@ -52,7 +65,14 @@ export const getTournamentById = async (req, res, next) => {
 
   try {
     const [rows] = await pool.query(
-      'SELECT tournament_id, name, format, start_date, end_date, status FROM tournament WHERE tournament_id = ?',
+      `SELECT t.tournament_id, t.name, t.format, t.start_date, t.end_date, t.status, t.created_by,
+              COUNT(DISTINCT r.player_id) AS player_count,
+              COUNT(DISTINCT tr.round_id) AS rounds_count
+       FROM tournament t
+       LEFT JOIN registration r ON r.tournament_id = t.tournament_id
+       LEFT JOIN tournament_round tr ON tr.tournament_id = t.tournament_id
+       WHERE t.tournament_id = ?
+       GROUP BY t.tournament_id, t.name, t.format, t.start_date, t.end_date, t.status, t.created_by`,
       [id]
     );
 
@@ -60,7 +80,12 @@ export const getTournamentById = async (req, res, next) => {
       return res.status(404).json({ error: 'Tournament not found' });
     }
 
-    return res.json(rows[0]);
+    const item = {
+      ...rows[0],
+      player_count: Number(rows[0].player_count),
+      rounds_count: Number(rows[0].rounds_count)
+    };
+    return res.json(item);
   } catch (err) {
     next(err);
   }
@@ -68,16 +93,17 @@ export const getTournamentById = async (req, res, next) => {
 
 export const createTournament = async (req, res, next) => {
   const { name, format, start_date, end_date, status = 'UPCOMING' } = req.body;
+  const createdBy = req.user.user_id;
 
   try {
     const [result] = await pool.query(
-      `INSERT INTO tournament (name, format, start_date, end_date, status)
-       VALUES (?, ?, ?, ?, ?)`,
-      [name, format, start_date, end_date, status]
+      `INSERT INTO tournament (name, format, start_date, end_date, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [name, format, start_date, end_date, status, createdBy]
     );
 
     const [rows] = await pool.query(
-      'SELECT tournament_id, name, format, start_date, end_date, status FROM tournament WHERE tournament_id = ?',
+      'SELECT tournament_id, name, format, start_date, end_date, status, created_by FROM tournament WHERE tournament_id = ?',
       [result.insertId]
     );
 
@@ -92,14 +118,8 @@ export const updateTournament = async (req, res, next) => {
   const updates = req.body;
 
   try {
-    const [existing] = await pool.query(
-      'SELECT tournament_id, start_date, end_date FROM tournament WHERE tournament_id = ?',
-      [id]
-    );
-
-    if (existing.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
+    const isOwner = await checkTournamentOwnership(req, res, id);
+    if (!isOwner) return;
 
     const allowedColumns = ['name', 'format', 'start_date', 'end_date', 'status'];
     const fields = [];
@@ -119,7 +139,7 @@ export const updateTournament = async (req, res, next) => {
     );
 
     const [rows] = await pool.query(
-      'SELECT tournament_id, name, format, start_date, end_date, status FROM tournament WHERE tournament_id = ?',
+      'SELECT tournament_id, name, format, start_date, end_date, status, created_by FROM tournament WHERE tournament_id = ?',
       [id]
     );
 
@@ -134,9 +154,73 @@ export const registerPlayer = async (req, res, next) => {
   const { player_id } = req.body;
 
   try {
+    const isOwner = await checkTournamentOwnership(req, res, tournamentId);
+    if (!isOwner) return;
+
     const [result] = await pool.query(
       'INSERT INTO registration (tournament_id, player_id) VALUES (?, ?)',
       [tournamentId, player_id]
+    );
+
+    const [rows] = await pool.query(
+      `SELECT r.registration_id, r.tournament_id, r.player_id, r.rating_at_entry, r.registered_at,
+              p.name AS player_name, p.country, p.current_rating
+       FROM registration r
+       JOIN player p ON p.player_id = r.player_id
+       WHERE r.registration_id = ?`,
+      [result.insertId]
+    );
+
+    return res.status(201).json({
+      message: 'Player registered successfully',
+      registration: rows[0]
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const registerMe = async (req, res, next) => {
+  const { id: tournamentId } = req.params;
+  const playerId = req.user.player_id;
+
+  if (!playerId) {
+    return res.status(400).json({
+      error: 'No player profile associated with your user account'
+    });
+  }
+
+  try {
+    const [tRows] = await pool.query(
+      'SELECT tournament_id, status FROM tournament WHERE tournament_id = ?',
+      [tournamentId]
+    );
+
+    if (tRows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+
+    if (tRows[0].status !== 'UPCOMING') {
+      return res.status(400).json({
+        error: 'Registration is only open for UPCOMING tournaments'
+      });
+    }
+
+    // Check if already registered
+    const [existing] = await pool.query(
+      'SELECT registration_id FROM registration WHERE tournament_id = ? AND player_id = ?',
+      [tournamentId, playerId]
+    );
+
+    if (existing.length > 0) {
+      return res.status(400).json({
+        error: 'Player is already registered for this tournament'
+      });
+    }
+
+    const [result] = await pool.query(
+      'INSERT INTO registration (tournament_id, player_id) VALUES (?, ?)',
+      [tournamentId, playerId]
     );
 
     const [rows] = await pool.query(
@@ -190,14 +274,8 @@ export const createRound = async (req, res, next) => {
   const { id: tournamentId } = req.params;
 
   try {
-    const [tournamentRows] = await pool.query(
-      'SELECT tournament_id, status FROM tournament WHERE tournament_id = ?',
-      [tournamentId]
-    );
-
-    if (tournamentRows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
+    const isOwner = await checkTournamentOwnership(req, res, tournamentId);
+    if (!isOwner) return;
 
     // Auto-calculate next round number
     const [roundMax] = await pool.query(
@@ -388,4 +466,22 @@ export const getTournamentPredictions = async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+};
+
+export default {
+  getTournaments,
+  getTournamentById,
+  createTournament,
+  updateTournament,
+  registerPlayer,
+  registerMe,
+  getRegistrations,
+  createRound,
+  getRounds,
+  getStandings,
+  getTournamentAnalytics,
+  getTournamentPredictions,
+  createTournamentSchema,
+  updateTournamentSchema,
+  registerPlayerSchema
 };

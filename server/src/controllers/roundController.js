@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { pool } from '../config/db.js';
+import { checkRoundOwnership } from '../middleware/authMiddleware.js';
 
 export const createGameSchema = z.object({
   board_no: z.number().int().positive('board_no must be a positive integer'),
@@ -15,6 +16,9 @@ export const createGame = async (req, res, next) => {
   const { board_no, white_player_id, black_player_id } = req.body;
 
   try {
+    const isOwner = await checkRoundOwnership(req, res, roundId);
+    if (!isOwner) return;
+
     const [roundRows] = await pool.query(
       'SELECT round_id, tournament_id, status FROM tournament_round WHERE round_id = ?',
       [roundId]
@@ -80,4 +84,10 @@ export const getGames = async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+};
+
+export default {
+  createGame,
+  getGames,
+  createGameSchema
 };

@@ -2,38 +2,165 @@
 ### Compatible with REST Client for VS Code / IntelliJ / Postman
 
 @baseUrl = http://localhost:5000
-@adminUsername = admin
-@adminPassword = password123
+@adminEmail = your_admin@example.com
+@adminPassword = YourAdminPassword123!
 
 ###
-### 1. AUTHENTICATION
+### 1. AUTHENTICATION & REGISTRATION
 ###
 
-# @name login
+# 1.1 Admin Login
+# @name adminLogin
 POST {{baseUrl}}/api/auth/login
 Content-Type: application/json
 
 {
-  "username": "{{adminUsername}}",
+  "email": "{{adminEmail}}",
   "password": "{{adminPassword}}"
 }
 
-### Store Auth Token from login response
-@authToken = {{login.response.body.token}}
+### Store Admin Auth Token
+@adminToken = {{adminLogin.response.body.token}}
+
+# 1.2 Register a new PLAYER
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{
+  "role": "PLAYER",
+  "full_name": "Hikaru Nakamura",
+  "email": "hikaru@chess.example",
+  "password": "PlayerPass123!",
+  "confirm_password": "PlayerPass123!",
+  "accept_terms": true,
+  "country": "USA",
+  "date_of_birth": "1987-12-09"
+}
+
+# 1.3 Register a new ORGANIZER
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{
+  "role": "ORGANIZER",
+  "full_name": "FIDE Arbiter",
+  "email": "arbiter@fide.example",
+  "password": "ArbiterPass123!",
+  "confirm_password": "ArbiterPass123!",
+  "accept_terms": true,
+  "organization": "World Chess Federation",
+  "phone": "+15551234567"
+}
+
+# 1.4 Verify Email (use token printed in console / email)
+POST {{baseUrl}}/api/auth/verify-email
+Content-Type: application/json
+
+{
+  "token": "REPLACE_WITH_HEX_TOKEN_FROM_EMAIL_OR_CONSOLE"
+}
+
+# 1.5 Resend Verification Email (60s cooldown per account)
+POST {{baseUrl}}/api/auth/resend-verification
+Content-Type: application/json
+
+{
+  "email": "hikaru@chess.example"
+}
+
+# 1.6 Player Login
+# @name playerLogin
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "hikaru@chess.example",
+  "password": "PlayerPass123!"
+}
+
+### Store Player Token
+@playerToken = {{playerLogin.response.body.token}}
+
+# 1.7 Forgot Password (always generic 200)
+POST {{baseUrl}}/api/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "hikaru@chess.example"
+}
+
+# 1.8 Reset Password
+POST {{baseUrl}}/api/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "REPLACE_WITH_RESET_TOKEN",
+  "password": "NewSecretPass123!",
+  "confirm_password": "NewSecretPass123!"
+}
+
+# 1.9 Get Current User Profile (GET /me)
+GET {{baseUrl}}/api/auth/me
+Authorization: Bearer {{adminToken}}
+
+# 1.10 Update Current User Profile (PUT /me/profile)
+PUT {{baseUrl}}/api/auth/me/profile
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "full_name": "Chief Tournament Arbiter",
+  "phone": "+10987654321",
+  "organization": "FIDE Global Operations"
+}
+
+# 1.11 Change Password
+POST {{baseUrl}}/api/auth/change-password
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "current_password": "{{adminPassword}}",
+  "new_password": "NewAdminPass123!"
+}
+
 
 ###
-### 2. PLAYERS
+### 2. ADMIN USER MANAGEMENT (ADMIN ONLY)
 ###
 
-# 2.1 List all players
+# 2.1 List Users (optional status and role filters)
+GET {{baseUrl}}/api/admin/users?status=PENDING_APPROVAL&role=ORGANIZER
+Authorization: Bearer {{adminToken}}
+
+# 2.2 Approve Organizer Account (transitions PENDING_APPROVAL -> ACTIVE)
+POST {{baseUrl}}/api/admin/users/2/approve
+Authorization: Bearer {{adminToken}}
+
+# 2.3 Suspend User Account
+POST {{baseUrl}}/api/admin/users/2/suspend
+Authorization: Bearer {{adminToken}}
+
+# 2.4 Reactivate User Account
+POST {{baseUrl}}/api/admin/users/2/reactivate
+Authorization: Bearer {{adminToken}}
+
+
+###
+### 3. PLAYERS
+###
+
+# 3.1 List all players (Protected - requires active user)
 GET {{baseUrl}}/api/players
+Authorization: Bearer {{adminToken}}
 
-### 2.2 Search players by name
+# 3.2 Search players by name
 GET {{baseUrl}}/api/players?q=Magnus
+Authorization: Bearer {{adminToken}}
 
-### 2.3 Create a new player (Protected - requires JWT)
+# 3.3 Create a new player (ORGANIZER or ADMIN only)
 POST {{baseUrl}}/api/players
-Authorization: Bearer {{authToken}}
+Authorization: Bearer {{adminToken}}
 Content-Type: application/json
 
 {
@@ -44,41 +171,44 @@ Content-Type: application/json
   "current_rating": 2729
 }
 
-### 2.4 Get player by ID
+# 3.4 Get player by ID
 GET {{baseUrl}}/api/players/1
+Authorization: Bearer {{adminToken}}
 
-### 2.5 Update player by ID (Protected - requires JWT)
+# 3.5 Update player by ID (PLAYER can only update own profile; ADMIN/ORGANIZER can manage)
 PUT {{baseUrl}}/api/players/1
-Authorization: Bearer {{authToken}}
+Authorization: Bearer {{adminToken}}
 Content-Type: application/json
 
 {
   "country": "Norway"
 }
 
-### 2.6 Attempt to edit player rating directly (Fails with 400 - ratings change ONLY via record_result)
+# 3.6 Attempt to edit player rating directly (Fails with 400 - rating changes ONLY via record_result)
 PUT {{baseUrl}}/api/players/1
-Authorization: Bearer {{authToken}}
+Authorization: Bearer {{adminToken}}
 Content-Type: application/json
 
 {
   "current_rating": 2900
 }
 
-### 2.7 Get player analytics (performance, progression, tournament history)
+# 3.7 Get player analytics
 GET {{baseUrl}}/api/players/1/analytics
+Authorization: Bearer {{adminToken}}
 
 
 ###
-### 3. TOURNAMENTS
+### 4. TOURNAMENTS
 ###
 
-# 3.1 List all tournaments
+# 4.1 List all tournaments
 GET {{baseUrl}}/api/tournaments
+Authorization: Bearer {{adminToken}}
 
-### 3.2 Create tournament (Protected - requires JWT)
+# 4.2 Create tournament (ORGANIZER sets created_by, or ADMIN)
 POST {{baseUrl}}/api/tournaments
-Authorization: Bearer {{authToken}}
+Authorization: Bearer {{adminToken}}
 Content-Type: application/json
 
 {
@@ -89,69 +219,79 @@ Content-Type: application/json
   "status": "UPCOMING"
 }
 
-### 3.3 Get tournament by ID
+# 4.3 Get tournament by ID
 GET {{baseUrl}}/api/tournaments/1
+Authorization: Bearer {{adminToken}}
 
-### 3.4 Update tournament / Change status (Protected - requires JWT)
+# 4.4 Update tournament / Change status (Creator or ADMIN only)
 PUT {{baseUrl}}/api/tournaments/1
-Authorization: Bearer {{authToken}}
+Authorization: Bearer {{adminToken}}
 Content-Type: application/json
 
 {
   "status": "ONGOING"
 }
 
-### 3.5 Register player for tournament (Protected - requires JWT)
-POST {{baseUrl}}/api/tournaments/2/register
-Authorization: Bearer {{authToken}}
+# 4.5 Register player for tournament by Organizer/Admin
+POST {{baseUrl}}/api/tournaments/1/register
+Authorization: Bearer {{adminToken}}
 Content-Type: application/json
 
 {
   "player_id": 1
 }
 
-### 3.6 Get all registrations for tournament
+# 4.6 Player Self-Registration (PLAYER only, UPCOMING tournaments only)
+POST {{baseUrl}}/api/tournaments/1/register-me
+Authorization: Bearer {{playerToken}}
+
+# 4.7 Get all registrations for tournament
 GET {{baseUrl}}/api/tournaments/1/registrations
+Authorization: Bearer {{adminToken}}
 
-### 3.7 Create a new tournament round (Auto-increments round_no, Protected)
+# 4.8 Create a new tournament round (Auto-increments round_no, Creator or ADMIN only)
 POST {{baseUrl}}/api/tournaments/1/rounds
-Authorization: Bearer {{authToken}}
+Authorization: Bearer {{adminToken}}
 
-### 3.8 Get all rounds for tournament
+# 4.9 Get all rounds for tournament
 GET {{baseUrl}}/api/tournaments/1/rounds
+Authorization: Bearer {{adminToken}}
 
-### 3.9 Get tournament standings (from v_leaderboard)
+# 4.10 Get tournament standings (from v_leaderboard)
 GET {{baseUrl}}/api/tournaments/1/standings
+Authorization: Bearer {{adminToken}}
 
-### 3.10 Get tournament analytics (total games, outcomes, upsets, rating changes)
+# 4.11 Get tournament analytics
 GET {{baseUrl}}/api/tournaments/1/analytics
+Authorization: Bearer {{adminToken}}
 
-### 3.11 Get tournament predictions (Public - from prediction table joined with player)
+# 4.12 Get tournament predictions
 GET {{baseUrl}}/api/tournaments/1/predictions
+Authorization: Bearer {{adminToken}}
 
 
 ###
-### 4. ROUNDS & GAMES
+### 5. ROUNDS & GAMES
 ###
 
-# 4.1 Create game in round (Protected - requires JWT)
-POST {{baseUrl}}/api/rounds/2/games
-Authorization: Bearer {{authToken}}
+# 5.1 Create game in round (Creator or ADMIN only)
+POST {{baseUrl}}/api/rounds/1/games
+Authorization: Bearer {{adminToken}}
 Content-Type: application/json
 
 {
   "board_no": 5,
   "white_player_id": 1,
-  "black_player_id": 3
+  "black_player_id": 2
 }
 
-### 4.2 Get all games for round
+# 5.2 Get all games for round
 GET {{baseUrl}}/api/rounds/1/games
+Authorization: Bearer {{adminToken}}
 
-### 4.3 Record game result (Protected - calls CALL record_result(?, ?))
-# Outcome must be WHITE, BLACK, or DRAW
+# 5.3 Record game result (Creator or ADMIN only - executes CALL record_result(?, ?))
 POST {{baseUrl}}/api/games/1/result
-Authorization: Bearer {{authToken}}
+Authorization: Bearer {{adminToken}}
 Content-Type: application/json
 
 {
@@ -160,77 +300,38 @@ Content-Type: application/json
 
 
 ###
-### 5. DASHBOARD
+### 6. DASHBOARD
 ###
 
-# 5.1 Dashboard Analytics (Top 10 players, outcomes, upsets, top 5 rating progression)
+# 6.1 Dashboard Overview (requires active user)
 GET {{baseUrl}}/api/dashboard
+Authorization: Bearer {{adminToken}}
 
 
 ###
-### 6. ERROR MAPPING DEMONSTRATIONS
+### 7. ERROR HANDLING & SECURITY DEMONSTRATIONS
 ###
 
-### 6.1 MySQL 1062 -> 409 Conflict (Generic: "Duplicate entry")
-POST {{baseUrl}}/api/tournaments/1/register
-Authorization: Bearer {{authToken}}
+# 7.1 Unauthenticated Request -> 401
+GET {{baseUrl}}/api/players
+
+# 7.2 Player blocked from creating tournament -> 403 Forbidden
+POST {{baseUrl}}/api/tournaments
+Authorization: Bearer {{playerToken}}
 Content-Type: application/json
 
 {
-  "player_id": 1
+  "name": "Unauthorized Tournament",
+  "format": "SWISS",
+  "start_date": "2026-06-01",
+  "end_date": "2026-06-05"
 }
 
-### 6.2 MySQL 1452 -> 409 Conflict (Generic: "Referenced record does not exist")
-POST {{baseUrl}}/api/tournaments/1/register
-Authorization: Bearer {{authToken}}
-Content-Type: application/json
-
-{
-  "player_id": 999999
-}
-
-### 6.3 MySQL 3819 -> 400 Bad Request (Check Constraint)
-PUT {{baseUrl}}/api/tournaments/1
-Authorization: Bearer {{authToken}}
-Content-Type: application/json
-
-{
-  "end_date": "2020-01-01"
-}
-
-### 6.4 MySQL 1644 -> 400 Bad Request with custom signal message (Result already recorded)
-POST {{baseUrl}}/api/games/1/result
-Authorization: Bearer {{authToken}}
-Content-Type: application/json
-
-{
-  "outcome": "WHITE"
-}
-
-### 6.5 Direct Rating Edit Rejected -> 400 Bad Request ("Rating cannot be edited directly")
+# 7.3 Direct Rating Edit Blocked -> 400 Bad Request
 PUT {{baseUrl}}/api/players/1
-Authorization: Bearer {{authToken}}
+Authorization: Bearer {{adminToken}}
 Content-Type: application/json
 
 {
   "current_rating": 3000
-}
-
-### 6.5 Zod Validation Error -> 400 Bad Request
-POST {{baseUrl}}/api/players
-Authorization: Bearer {{authToken}}
-Content-Type: application/json
-
-{
-  "name": "",
-  "email": "invalid-email"
-}
-
-### 6.6 Unauthorized -> 401 Unauthorized
-POST {{baseUrl}}/api/players
-Content-Type: application/json
-
-{
-  "name": "Hacker",
-  "email": "hacker@example.com"
 }

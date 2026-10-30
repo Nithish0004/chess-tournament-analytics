@@ -107,6 +107,11 @@ export const recordResultApi = async (gameId, outcome) => {
   return data;
 };
 
+export const getRecentResultsApi = async () => {
+  const { data } = await api.get('/games/recent');
+  return data;
+};
+
 // Dashboard
 export const getDashboardApi = async () => {
   const { data } = await api.get('/dashboard');

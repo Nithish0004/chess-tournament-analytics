@@ -5,6 +5,7 @@ import {
   createTournament,
   updateTournament,
   registerPlayer,
+  registerMe,
   getRegistrations,
   createRound,
   getRounds,
@@ -15,25 +16,30 @@ import {
   updateTournamentSchema,
   registerPlayerSchema
 } from '../controllers/tournamentController.js';
-import { requireAuth } from '../middleware/authMiddleware.js';
+import { authMiddleware, requireRole } from '../middleware/authMiddleware.js';
 import { validateBody } from '../middleware/validateMiddleware.js';
 
 const router = Router();
 
+// Every route requires an authenticated ACTIVE user
+router.use(authMiddleware);
+
+// Public (to active users) queries
 router.get('/', getTournaments);
-router.post('/', requireAuth, validateBody(createTournamentSchema), createTournament);
-
 router.get('/:id', getTournamentById);
-router.put('/:id', requireAuth, validateBody(updateTournamentSchema), updateTournament);
-
-router.post('/:id/register', requireAuth, validateBody(registerPlayerSchema), registerPlayer);
 router.get('/:id/registrations', getRegistrations);
-
-router.post('/:id/rounds', requireAuth, createRound);
 router.get('/:id/rounds', getRounds);
-
 router.get('/:id/standings', getStandings);
 router.get('/:id/analytics', getTournamentAnalytics);
 router.get('/:id/predictions', getTournamentPredictions);
+
+// Player self-registration (player_id extracted from req.user)
+router.post('/:id/register-me', registerMe);
+
+// Management routes: ORGANIZER and ADMIN only
+router.post('/', requireRole('ORGANIZER', 'ADMIN'), validateBody(createTournamentSchema), createTournament);
+router.put('/:id', requireRole('ORGANIZER', 'ADMIN'), validateBody(updateTournamentSchema), updateTournament);
+router.post('/:id/register', requireRole('ORGANIZER', 'ADMIN'), validateBody(registerPlayerSchema), registerPlayer);
+router.post('/:id/rounds', requireRole('ORGANIZER', 'ADMIN'), createRound);
 
 export default router;

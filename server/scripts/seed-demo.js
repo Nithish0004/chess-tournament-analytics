@@ -49,19 +49,19 @@ const run = async () => {
     }
     console.log(`Inserted ${playerIds.length} players.`);
 
-    // Tournament 1: Tata Steel Masters 2026 (ONGOING)
+    // Tournament 1: Tata Steel Masters 2026 (ONGOING - range includes 2026-10-29)
     const [t1Res] = await conn.query(
       `INSERT INTO tournament (name, format, start_date, end_date, status)
        VALUES (?, ?, ?, ?, ?)`,
-      ['Tata Steel Masters 2026', 'ROUND_ROBIN', '2026-01-15', '2026-02-01', 'ONGOING']
+      ['Tata Steel Masters 2026', 'ROUND_ROBIN', '2026-10-15', '2026-11-05', 'ONGOING']
     );
     const t1Id = t1Res.insertId;
 
-    // Tournament 2: FIDE Candidates 2026 (UPCOMING)
+    // Tournament 2: FIDE Candidates 2026 (UPCOMING - starts after 2026-11-15)
     const [t2Res] = await conn.query(
       `INSERT INTO tournament (name, format, start_date, end_date, status)
        VALUES (?, ?, ?, ?, ?)`,
-      ['FIDE Candidates 2026', 'ROUND_ROBIN', '2026-04-01', '2026-04-25', 'UPCOMING']
+      ['FIDE Candidates 2026', 'ROUND_ROBIN', '2026-11-20', '2026-12-10', 'UPCOMING']
     );
     const t2Id = t2Res.insertId;
 

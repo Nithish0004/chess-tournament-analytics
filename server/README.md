@@ -1,6 +1,6 @@
 # Chess Tournament Management & Analytics API
 
-Express 5 REST API for the Chess Tournament Management and Analytics system. Built with Node.js ES modules, `mysql2/promise` connection pooling, Zod validation, JWT authentication, and MySQL 8.0 stored procedures/views.
+Express 5 REST API for the Chess Tournament Management and Analytics system. Built with Node.js ES modules, `mysql2/promise` connection pooling, Zod validation, role-based JWT authentication, rate limiting, Helmet, Nodemailer, and MySQL 8.0 stored procedures/views.
 
 ---
 
@@ -8,10 +8,11 @@ Express 5 REST API for the Chess Tournament Management and Analytics system. Bui
 
 - **Runtime & Framework**: Node.js (ES Modules), Express 5
 - **Database**: MySQL 8.0.16+ with InnoDB (CHECK constraints, Triggers, Stored Procedures, Views)
-- **Driver**: `mysql2/promise` with connection pooling
+- **Driver**: `mysql2/promise` with connection pooling (strictly parameterised queries)
 - **Validation**: `zod`
-- **Security & Auth**: `bcrypt` (password hashing), `jsonwebtoken` (JWT bearer authentication), `cors`
-- **Config**: `dotenv`
+- **Security & Auth**: `bcrypt` (cost 12), `jsonwebtoken` (JWT bearer authentication, 8h expiry), `helmet`, `cors`, `express-rate-limit`
+- **Mailing**: `nodemailer` (supports `console` and `smtp` transports)
+- **Config**: `dotenv` with startup validation of required variables (`JWT_SECRET` min 32 chars)
 
 ---
 
@@ -24,170 +25,191 @@ server/
 ├── requests.http             # HTTP client collection for all endpoints
 ├── README.md                 # Setup and run instructions
 ├── scripts/
-│   ├── seed-admin.js         # Seeds admin user into admin_user table
+│   ├── seed-admin.js         # Upserts active, verified ADMIN into app_user
 │   ├── seed-demo.js          # Populates 16 players, 2 tournaments, rounds & games
-│   └── test-all-endpoints.js # Automated verification suite for all endpoints
+│   └── test-all-endpoints.js # Automated verification suite for auth, roles, and endpoints
 └── src/
-    ├── app.js                # Express app factory with route registrations
+    ├── app.js                # Express app factory with helmet, cors, and route registrations
     ├── server.js             # Server entry point with graceful shutdown
     ├── config/
-    │   └── db.js             # mysql2/promise connection pool configuration
+    │   ├── db.js             # mysql2/promise connection pool configuration
+    │   └── env.js            # Environment validation (JWT_SECRET min 32 chars fail-fast)
     ├── controllers/
-    │   ├── authController.js
+    │   ├── adminController.js # Admin user approval, suspension, and reactivation
+    │   ├── authController.js  # Registration, email verify, login, password reset, profile
     │   ├── playerController.js
     │   ├── tournamentController.js
     │   ├── roundController.js
     │   ├── gameController.js
     │   └── dashboardController.js
     ├── middleware/
-    │   ├── authMiddleware.js     # Enforces JWT on POST/PUT endpoints
+    │   ├── authMiddleware.js     # Enforces JWT + active status check + role/ownership checks
     │   ├── errorHandler.js       # Central error handler mapping MySQL error codes
+    │   ├── rateLimitMiddleware.js # Rate limiting for auth and login
     │   └── validateMiddleware.js # Zod request body validation
     ├── routes/
+    │   ├── adminRoutes.js
     │   ├── authRoutes.js
     │   ├── playerRoutes.js
     │   ├── tournamentRoutes.js
     │   ├── roundRoutes.js
     │   ├── gameRoutes.js
     │   └── dashboardRoutes.js
+    ├── services/
+    │   └── mailService.js        # Email dispatching (console / smtp) with HTML templates
     └── utils/
-        └── jwt.js            # JWT signing and verification helpers
+        ├── jwt.js                # JWT sign and verify helpers
+        └── tokens.js             # 32-byte hex crypto token generation & SHA-256 hashing
 ```
 
 ---
 
-## Setup Instructions
+## Environment Variables
 
-### 1. Prerequisites
-- Node.js v18 or higher (tested on Node v25)
-- MySQL 8.0.16 or higher running with `chess_db` database initialized from `sql/01_schema.sql` and `sql/02_routines.sql`.
-
-### 2. Environment Variables
-Copy `.env.example` to `.env`:
-```bash
-cp .env.example .env
-```
-
-Configure your `.env` settings:
+Configure your `.env` (refer to `.env.example`):
 ```env
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USER=chess_admin
 DB_PASSWORD=chess_password
 DB_NAME=chess_db
-JWT_SECRET=super_secret_jwt_chess_key_2026
 PORT=5000
+JWT_SECRET=chess_tournament_super_secret_jwt_key_2026_at_least_32_chars
+CLIENT_URL=http://localhost:3000
+MAIL_TRANSPORT=console
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=user@example.com
+SMTP_PASS=password
+MAIL_FROM="Chess Tournament" <noreply@chess-tournament.com>
+GOOGLE_CLIENT_ID=
 ```
-> **Security Note:** Never commit `.env` to version control. It is ignored in `.gitignore`.
 
-### 3. Install Dependencies
+> **Startup Requirement:** `JWT_SECRET` must be set and have a minimum length of 32 characters, or the application will throw a fatal error on startup.
+> **Console Mail Transport:** In `MAIL_TRANSPORT=console` mode, verification and password-reset links are printed directly to the server terminal. Tokens are never logged otherwise.
+> **CORS:** Restricted to `CLIENT_URL`.
+
+---
+
+## Setup & Running
+
+### 1. Install Dependencies
 ```bash
 cd server
 npm install
 ```
 
-### 4. Seed Database
-
-#### Seed Admin User
+### 2. Seed Admin User
+Upserts an `ACTIVE`, `email_verified` ADMIN in `app_user`. All three arguments are required (`email`, `password`, `full_name`):
 ```bash
-# Default (username: admin, password: password123)
-npm run seed:admin
-
-# Or with custom credentials:
-node scripts/seed-admin.js <username> <password>
+node scripts/seed-admin.js <email> <password> <full_name>
+```
+Example:
+```bash
+node scripts/seed-admin.js admin@example.com ReplaceWithStrongPassword123! "Site Administrator"
 ```
 
-#### Seed Demo Tournament Data
-Creates 16 players, 2 tournaments, registrations, rounds, games, and records results through stored procedures:
+### 3. Start Server
 ```bash
-npm run seed:demo
-```
-
----
-
-## Running the Server
-
-### Development Mode (Node auto-reload)
-```bash
+# Development (with watch mode)
 npm run dev
-```
 
-### Production Mode
-```bash
+# Production
 npm start
 ```
-The server will start at `http://localhost:5000`.
 
----
-
-## Running Tests
-
-Run the complete endpoint and error-mapping verification test suite:
+### 4. Run Test Suite
+Runs the comprehensive verification suite against unique `@test.local` records and automatically cleans them up afterwards:
 ```bash
 node scripts/test-all-endpoints.js
 ```
 
 ---
 
-## API Endpoints Reference
+## Authentication & Authorization Model
 
-### Authentication
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `POST` | `/api/auth/login` | Public | Authenticates admin using bcrypt and returns JWT token |
+### Roles & Permissions
 
-### Players
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `GET` | `/api/players` | Public | List all players (supports `?q=` name search) |
-| `POST` | `/api/players` | Protected | Create a new player |
-| `GET` | `/api/players/:id` | Public | Get player details by ID |
-| `PUT` | `/api/players/:id` | Protected | Update player details (ratings immutable; rejecting `current_rating` with 400) |
-| `GET` | `/api/players/:id/analytics` | Public | Returns `v_player_performance`, `v_rating_progression`, and tournament history |
+| Role | Allowed Actions |
+|---|---|
+| **ADMIN** | Full access to all endpoints, user management (approve organizers, suspend/reactivate users), create and manage any tournament, round, game, and result. |
+| **ORGANIZER** | Create tournaments (sets `tournament.created_by`), edit/status-change owned tournaments, register players, create rounds and games, record results for owned tournaments. Blocked from managing tournaments created by other organizers. |
+| **PLAYER** | View data, update own player profile (`PUT /api/players/:id` where `id == player_id`), and self-register for upcoming tournaments via `POST /api/tournaments/:id/register-me`. Forbidden from creating tournaments, rounds, games, or recording results. |
 
-### Tournaments
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `GET` | `/api/tournaments` | Public | List all tournaments |
-| `POST` | `/api/tournaments` | Protected | Create a new tournament |
-| `GET` | `/api/tournaments/:id` | Public | Get tournament details |
-| `PUT` | `/api/tournaments/:id` | Protected | Update tournament (including status: UPCOMING/ONGOING/COMPLETED) |
-| `POST` | `/api/tournaments/:id/register` | Protected | Register player (`{ player_id }`) |
-| `GET` | `/api/tournaments/:id/registrations` | Public | List registrations for tournament |
-| `POST` | `/api/tournaments/:id/rounds` | Protected | Auto-creates next round (`round_no` auto-incremented) |
-| `GET` | `/api/tournaments/:id/rounds` | Public | List rounds for tournament |
-| `GET` | `/api/tournaments/:id/standings` | Public | Tournament standings from `v_leaderboard` |
-| `GET` | `/api/tournaments/:id/analytics` | Public | Total games, win/draw counts, upsets (`v_upsets`), rating changes |
+### Database Status Check
+The `authMiddleware` validates the JWT bearer token and **re-verifies the user's status (`ACTIVE`) in the database** on every request. If an admin suspends a user, the user is blocked immediately even if their token has not expired.
 
-### Rounds & Games
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `POST` | `/api/rounds/:id/games` | Protected | Schedule a game (`{ board_no, white_player_id, black_player_id }`) |
-| `GET` | `/api/rounds/:id/games` | Public | List all games and results in a round |
-| `POST` | `/api/games/:id/result` | Protected | Record result (`{ outcome: 'WHITE' \| 'BLACK' \| 'DRAW' }`) via `CALL record_result(?, ?)` |
+### Rate Limiting & Account Lockout
+- **Rate Limit**: ~10 requests per 15 minutes per IP on `/api/auth` endpoints.
+- **Password Lockout**: After 5 failed password attempts on an account, `locked_until` is set to `NOW() + 15 MINUTE`. Subsequent login attempts while locked return `429 Too Many Requests`.
+- **Generic Responses**: `POST /api/auth/register`, `POST /api/auth/resend-verification`, and `POST /api/auth/forgot-password` return generic responses to prevent account enumeration.
 
-### Dashboard
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `GET` | `/api/dashboard` | Public | Top 10 by rating, outcome distribution, total upsets, recent upsets, and rating progression for top 5 |
+### Tokens & Links
+- Generated using `crypto.randomBytes(32).toString('hex')`.
+- Only the **SHA-256 hash** (`auth_token.token_hash`) is stored in the database.
+- Single-use: `used_at` timestamp is set upon redemption.
+- **Verification links**: expire in 24 hours.
+- **Password reset links**: expire in 1 hour.
 
 ---
 
-## Architectural Rules & Implementation Details
+## API Endpoints Reference
 
-1. **Parameterised Queries**: Every database query strictly uses `?` placeholders with parameter arrays. String concatenation is never used to construct SQL statements.
-2. **Result Recording via Stored Procedure**: Results are recorded **ONLY** by calling `CALL record_result(?, ?)`. The application does not manually calculate Elo ratings or tournament points; the database transaction updates ratings, logs `rating_history`, updates game and round statuses, and calls `refresh_standings(p_tid)`. Ratings cannot be edited directly via `PUT /api/players/:id`.
-3. **Database Views**:
-   - `v_leaderboard`: Used for `/api/tournaments/:id/standings`.
-   - `v_player_performance`: Used for `/api/players/:id/analytics`.
-   - `v_rating_progression`: Used for player rating graphs and top 5 progression in dashboard.
-   - `v_upsets`: Used for tournament analytics and dashboard upset tracking.
-4. **Central Error Handler Mapping**:
-   - `1062` (`ER_DUP_ENTRY`) $\rightarrow$ **409 Conflict** with generic message `"Duplicate entry"`
-   - `1452` (`ER_NO_REFERENCED_ROW_2`) $\rightarrow$ **409 Conflict** with generic message `"Referenced record does not exist"`
-   - `3819` (`ER_CHECK_CONSTRAINT_VIOLATED`) $\rightarrow$ **400 Bad Request**
-   - `1644` (`ER_SIGNAL_EXCEPTION` from MySQL triggers/procedures) $\rightarrow$ **400 Bad Request** with MySQL error message
-   - Everything else $\rightarrow$ **500 Internal Server Error** with generic message
-5. **Authentication & Authorization**:
-   - `GET` endpoints are open to the public.
-   - `POST` and `PUT` endpoints require a valid JWT passed in the `Authorization: Bearer <token>` header.
+### Authentication (`/api/auth`)
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `POST` | `/api/auth/register` | Public | Register `PLAYER` or `ORGANIZER` (ADMIN prohibited). Sends verification email. |
+| `POST` | `/api/auth/verify-email` | Public | Verifies email token (PLAYER $\rightarrow$ `ACTIVE`, ORGANIZER $\rightarrow$ `PENDING_APPROVAL`). |
+| `POST` | `/api/auth/resend-verification` | Public | Resends verification email (60s cooldown per account). |
+| `POST` | `/api/auth/login` | Public | Returns 8h JWT and user info. 5 failed attempts locks account for 15 min. |
+| `POST` | `/api/auth/forgot-password` | Public | Generates single-use 1h reset link and sends email. |
+| `POST` | `/api/auth/reset-password` | Public | Resets password using reset token and clears lockout. |
+| `GET` | `/api/auth/me` | Authenticated | Returns current authenticated user and linked player profile. |
+| `PUT` | `/api/auth/me/profile` | Authenticated | Update full_name, phone, country, date_of_birth, organization. |
+| `POST` | `/api/auth/change-password` | Authenticated | Change account password with current and new password. |
+
+### Admin Management (`/api/admin`)
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/admin/users?status=&role=` | ADMIN | Filter and list all users in `app_user`. |
+| `POST` | `/api/admin/users/:id/approve` | ADMIN | Approves organizer in `PENDING_APPROVAL` to `ACTIVE` and sends approval email. |
+| `POST` | `/api/admin/users/:id/suspend` | ADMIN | Suspends user account (admins cannot suspend themselves). |
+| `POST` | `/api/admin/users/:id/reactivate` | ADMIN | Reactivates suspended user to `ACTIVE`. |
+
+### Tournaments (`/api/tournaments`)
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/tournaments` | Authenticated | List all tournaments with player and round counts. |
+| `GET` | `/api/tournaments/:id` | Authenticated | Get tournament by ID. |
+| `POST` | `/api/tournaments` | ORGANIZER, ADMIN | Create tournament (sets `tournament.created_by = user_id`). |
+| `PUT` | `/api/tournaments/:id` | Creator, ADMIN | Update tournament details or status. |
+| `POST` | `/api/tournaments/:id/register` | Creator, ADMIN | Register player for tournament. |
+| `POST` | `/api/tournaments/:id/register-me` | PLAYER | Self-register for upcoming tournament using token `player_id`. |
+| `GET` | `/api/tournaments/:id/registrations` | Authenticated | List registrations for tournament. |
+| `POST` | `/api/tournaments/:id/rounds` | Creator, ADMIN | Auto-increment round and schedule next round. |
+| `GET` | `/api/tournaments/:id/rounds` | Authenticated | List rounds for tournament. |
+| `GET` | `/api/tournaments/:id/standings` | Authenticated | Tournament standings from `v_leaderboard`. |
+| `GET` | `/api/tournaments/:id/analytics` | Authenticated | Tournament match statistics, upsets, and rating changes. |
+| `GET` | `/api/tournaments/:id/predictions` | Authenticated | Tournament performance predictions. |
+
+### Players (`/api/players`)
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/players` | Authenticated | List all players (supports search `?q=`). |
+| `GET` | `/api/players/:id` | Authenticated | Get player by ID. |
+| `GET` | `/api/players/:id/analytics` | Authenticated | Player performance, progression, and match history. |
+| `POST` | `/api/players` | ORGANIZER, ADMIN | Create player record directly. |
+| `PUT` | `/api/players/:id` | Self (PLAYER), ORGANIZER, ADMIN | Update player profile (direct rating edits blocked). |
+
+### Rounds & Games (`/api/rounds`, `/api/games`)
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/rounds/:id/games` | Authenticated | List games in round. |
+| `POST` | `/api/rounds/:id/games` | Creator, ADMIN | Schedule board pairing in round. |
+| `GET` | `/api/games/recent` | Authenticated | List recent match results. |
+| `POST` | `/api/games/:id/result` | Creator, ADMIN | Record result (`CALL record_result(?, ?)`) and trigger rating updates. |
+
+### Dashboard (`/api/dashboard`)
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/dashboard` | Authenticated | Aggregated stats, top players, recent activity, and upsets. |
