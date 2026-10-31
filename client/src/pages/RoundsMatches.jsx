@@ -49,8 +49,17 @@ export const RoundsMatches = () => {
     black_player_id: ''
   });
 
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, user } = useAuth();
   const { showToast } = useToast();
+
+  const selectedTournament = tournaments.find(
+    (t) => String(t.tournament_id) === String(selectedTournamentId)
+  );
+
+  const canManage = Boolean(
+    selectedTournament?.can_manage &&
+      !(user?.role === 'ORGANIZER' && selectedTournament?.status === 'COMPLETED')
+  );
 
   // Load tournaments list
   useEffect(() => {
@@ -200,10 +209,6 @@ export const RoundsMatches = () => {
     }
   };
 
-  const selectedTournament = tournaments.find(
-    (t) => String(t.tournament_id) === String(selectedTournamentId)
-  );
-
   const formatOutcome = (outcome) => {
     if (outcome === 'WHITE') return { label: '1 - 0', text: 'White wins', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
     if (outcome === 'BLACK') return { label: '0 - 1', text: 'Black wins', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
@@ -218,15 +223,21 @@ export const RoundsMatches = () => {
         title="Rounds & Matches"
         subtitle="Schedule tournament rounds, board pairings, and view match outcomes"
         actions={
-          isLoggedIn && selectedRoundId && (
-            <button
-              onClick={handleOpenAddMatch}
-              disabled={registeredPlayers.length < 2}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Add Match</span>
-            </button>
+          selectedRoundId && (
+            canManage ? (
+              <button
+                onClick={handleOpenAddMatch}
+                disabled={registeredPlayers.length < 2}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>Add Match</span>
+              </button>
+            ) : (
+              <span className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                {selectedTournament?.owner_name ? `Owned by ${selectedTournament.owner_name}` : 'View only'}
+              </span>
+            )
           )
         }
       />
@@ -263,6 +274,11 @@ export const RoundsMatches = () => {
               <span className="text-xs text-slate-500 font-medium">
                 {registeredPlayers.length} registered players
               </span>
+              {!canManage && (
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-slate-100 text-slate-500 border border-slate-200">
+                  {selectedTournament.owner_name ? `Owned by ${selectedTournament.owner_name}` : 'View only'}
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -281,7 +297,7 @@ export const RoundsMatches = () => {
             title="No rounds configured"
             description="This tournament currently does not have any scheduled rounds."
             action={
-              isLoggedIn && (
+              canManage && (
                 <button
                   onClick={handleAddRound}
                   disabled={creatingRound}
@@ -317,8 +333,8 @@ export const RoundsMatches = () => {
               })}
             </div>
 
-            {/* Add Round Button (Admin only) */}
-            {isLoggedIn && (
+            {/* Add Round Button */}
+            {canManage && (
               <button
                 onClick={handleAddRound}
                 disabled={creatingRound}
@@ -360,7 +376,7 @@ export const RoundsMatches = () => {
                           title="No matches scheduled for this round"
                           description="Add pairings to this round using the Add Match button above."
                           action={
-                            isLoggedIn && (
+                            canManage && (
                               <button
                                 onClick={handleOpenAddMatch}
                                 disabled={registeredPlayers.length < 2}

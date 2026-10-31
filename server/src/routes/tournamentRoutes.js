@@ -16,7 +16,7 @@ import {
   updateTournamentSchema,
   registerPlayerSchema
 } from '../controllers/tournamentController.js';
-import { authMiddleware, requireRole } from '../middleware/authMiddleware.js';
+import { authMiddleware, requireRole, requireTournamentAccess } from '../middleware/authMiddleware.js';
 import { validateBody } from '../middleware/validateMiddleware.js';
 
 const router = Router();
@@ -33,13 +33,15 @@ router.get('/:id/standings', getStandings);
 router.get('/:id/analytics', getTournamentAnalytics);
 router.get('/:id/predictions', getTournamentPredictions);
 
-// Player self-registration (player_id extracted from req.user)
-router.post('/:id/register-me', registerMe);
+// Player self-registration (PLAYER only, player_id extracted from req.user)
+router.post('/:id/register-me', requireRole('PLAYER'), registerMe);
 
-// Management routes: ORGANIZER and ADMIN only
+// Create tournament: ORGANIZER and ADMIN only
 router.post('/', requireRole('ORGANIZER', 'ADMIN'), validateBody(createTournamentSchema), createTournament);
-router.put('/:id', requireRole('ORGANIZER', 'ADMIN'), validateBody(updateTournamentSchema), updateTournament);
-router.post('/:id/register', requireRole('ORGANIZER', 'ADMIN'), validateBody(registerPlayerSchema), registerPlayer);
-router.post('/:id/rounds', requireRole('ORGANIZER', 'ADMIN'), createRound);
+
+// Tournament modification routes: enforced via requireTournamentAccess
+router.put('/:id', requireTournamentAccess('tournament'), validateBody(updateTournamentSchema), updateTournament);
+router.post('/:id/register', requireTournamentAccess('tournament'), validateBody(registerPlayerSchema), registerPlayer);
+router.post('/:id/rounds', requireTournamentAccess('tournament'), createRound);
 
 export default router;

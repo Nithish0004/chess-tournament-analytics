@@ -12,7 +12,10 @@ import {
   LogIn,
   LogOut,
   Menu,
-  X
+  X,
+  PlusCircle,
+  User,
+  ShieldCheck
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -32,16 +35,57 @@ export const Sidebar = () => {
     setMobileOpen(false);
   };
 
-  const navItems = [
-    { name: 'Dashboard', path: '/', icon: LayoutDashboard, exact: true },
-    { name: 'Tournaments', path: '/tournaments', icon: Trophy },
-    { name: 'Players', path: '/players', icon: Users },
-    { name: 'Rounds & Matches', path: '/rounds', icon: Swords },
-    { name: 'Results', path: '/results', icon: BarChart2 },
-    { name: 'Standings', path: '/standings', icon: ListOrdered },
-    { name: 'Analytics', path: '/analytics', icon: PieChart },
-    { name: 'Predictions', path: '/predictions', icon: Sparkles }
-  ];
+  const userRole = user?.role?.toUpperCase();
+
+  // Navigation items strictly segmented per user role:
+  // - PLAYER: Dashboard, Tournaments, Players, Standings, Analytics, Predictions, My Profile
+  // - ORGANIZER: plus Create Tournament, Rounds & Matches, Results
+  // - ADMIN: plus Users
+  const getNavItems = () => {
+    const playerProfilePath = user?.player_id ? `/players/${user.player_id}` : '/profile';
+
+    if (userRole === 'ADMIN') {
+      return [
+        { name: 'Dashboard', path: '/', icon: LayoutDashboard, exact: true },
+        { name: 'Tournaments', path: '/tournaments', icon: Trophy, exact: true },
+        { name: 'Create Tournament', path: '/tournaments/new', icon: PlusCircle },
+        { name: 'Players', path: '/players', icon: Users, exact: true },
+        { name: 'Rounds & Matches', path: '/rounds', icon: Swords },
+        { name: 'Results', path: '/results', icon: BarChart2 },
+        { name: 'Standings', path: '/standings', icon: ListOrdered },
+        { name: 'Analytics', path: '/analytics', icon: PieChart },
+        { name: 'Predictions', path: '/predictions', icon: Sparkles },
+        { name: 'Users', path: '/admin/users', icon: ShieldCheck }
+      ];
+    }
+
+    if (userRole === 'ORGANIZER') {
+      return [
+        { name: 'Dashboard', path: '/', icon: LayoutDashboard, exact: true },
+        { name: 'Tournaments', path: '/tournaments', icon: Trophy, exact: true },
+        { name: 'Create Tournament', path: '/tournaments/new', icon: PlusCircle },
+        { name: 'Players', path: '/players', icon: Users, exact: true },
+        { name: 'Rounds & Matches', path: '/rounds', icon: Swords },
+        { name: 'Results', path: '/results', icon: BarChart2 },
+        { name: 'Standings', path: '/standings', icon: ListOrdered },
+        { name: 'Analytics', path: '/analytics', icon: PieChart },
+        { name: 'Predictions', path: '/predictions', icon: Sparkles }
+      ];
+    }
+
+    // Default PLAYER items
+    return [
+      { name: 'Dashboard', path: '/', icon: LayoutDashboard, exact: true },
+      { name: 'Tournaments', path: '/tournaments', icon: Trophy, exact: true },
+      { name: 'Players', path: '/players', icon: Users, exact: true },
+      { name: 'Standings', path: '/standings', icon: ListOrdered },
+      { name: 'Analytics', path: '/analytics', icon: PieChart },
+      { name: 'Predictions', path: '/predictions', icon: Sparkles },
+      { name: 'My Profile', path: playerProfilePath, icon: User }
+    ];
+  };
+
+  const navItems = getNavItems();
 
   const isItemActive = (item) => {
     if (item.exact) return location.pathname === item.path;
@@ -108,36 +152,67 @@ export const Sidebar = () => {
         </p>
       </div>
 
-      {/* User / Auth Bottom Panel */}
+      {/* User / Auth Bottom Panel with Role Badge */}
       <div className="p-4 border-t border-white/10 bg-black/20">
         {isLoggedIn ? (
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <Avatar name={user?.username || 'Admin'} size="sm" />
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-white truncate">
-                  {user?.username || 'Admin'}
-                </p>
-                <p className="text-[10px] text-slate-400 font-medium">Administrator</p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Avatar name={user?.full_name || user?.email || user?.username || 'User'} size="sm" />
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-white truncate">
+                    {user?.full_name || user?.username || 'User'}
+                  </p>
+                  <p className="text-[10px] text-slate-400 font-mono truncate">
+                    {user?.email}
+                  </p>
+                </div>
               </div>
+              <button
+                onClick={handleLogout}
+                title="Log out"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-white/10 transition-colors shrink-0"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
             </div>
-            <button
-              onClick={handleLogout}
-              title="Log out"
-              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-white/10 transition-colors shrink-0"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
+
+            {/* Role Badge in sidebar footer */}
+            <div className="flex items-center justify-between pt-2 border-t border-white/10">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Current Role
+              </span>
+              <span
+                className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-black uppercase tracking-wider border ${
+                  userRole === 'ADMIN'
+                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                    : userRole === 'ORGANIZER'
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                }`}
+              >
+                {userRole === 'ADMIN' ? 'Admin' : userRole === 'ORGANIZER' ? 'Organizer' : 'Player'}
+              </span>
+            </div>
           </div>
         ) : (
-          <NavLink
-            to="/login"
-            onClick={() => setMobileOpen(false)}
-            className="w-full flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-[#2563EB] hover:bg-blue-600 shadow-sm transition-all"
-          >
-            <LogIn className="w-3.5 h-3.5" />
-            <span>Admin Login</span>
-          </NavLink>
+          <div className="space-y-2">
+            <NavLink
+              to="/login"
+              onClick={() => setMobileOpen(false)}
+              className="w-full flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-[#2563EB] hover:bg-blue-600 shadow-sm transition-all"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Sign In</span>
+            </NavLink>
+            <NavLink
+              to="/register"
+              onClick={() => setMobileOpen(false)}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold text-slate-300 hover:text-white hover:bg-white/10 transition-all border border-white/10"
+            >
+              <span>Create Account</span>
+            </NavLink>
+          </div>
         )}
       </div>
     </div>

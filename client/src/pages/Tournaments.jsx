@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Trophy,
   PlusCircle,
@@ -22,7 +22,8 @@ import { Tabs } from '../components/Tabs';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 
-export const Tournaments = () => {
+export const Tournaments = ({ defaultOpenCreate = false }) => {
+  const [searchParams] = useSearchParams();
   const [tournaments, setTournaments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -45,8 +46,18 @@ export const Tournaments = () => {
     end_date: ''
   });
 
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, user } = useAuth();
   const { showToast } = useToast();
+
+  const canCreate = Boolean(
+    user?.permissions?.can_create_tournament || ['ADMIN', 'ORGANIZER'].includes(user?.role)
+  );
+
+  useEffect(() => {
+    if (canCreate && (defaultOpenCreate || searchParams.get('create') === 'true')) {
+      setIsModalOpen(true);
+    }
+  }, [defaultOpenCreate, searchParams, canCreate]);
 
   const fetchTournaments = async () => {
     setLoading(true);
@@ -156,7 +167,7 @@ export const Tournaments = () => {
         title="Tournaments"
         subtitle="Championship schedules, league fixtures, and live leaderboard rankings"
         actions={
-          isLoggedIn && (
+          canCreate && (
             <button
               onClick={() => setIsModalOpen(true)}
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all"
@@ -294,7 +305,7 @@ export const Tournaments = () => {
                         <ArrowRight className="w-3 h-3" />
                       </Link>
 
-                      {isLoggedIn && (
+                      {t.can_manage && !(user?.role === 'ORGANIZER' && t.status === 'COMPLETED') ? (
                         <button
                           onClick={() => openChangeStatusModal(t)}
                           className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-colors"
@@ -302,6 +313,10 @@ export const Tournaments = () => {
                           <RefreshCw className="w-3 h-3" />
                           <span>Status</span>
                         </button>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium bg-slate-100 text-slate-500 border border-slate-200">
+                          {t.owner_name ? `Owned by ${t.owner_name}` : 'View only'}
+                        </span>
                       )}
                     </td>
                   </tr>

@@ -1,13 +1,29 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Trophy, BarChart2, TrendingUp, Crown, ArrowRight, Lock, User } from 'lucide-react';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import {
+  Trophy,
+  BarChart2,
+  TrendingUp,
+  Crown,
+  ShieldCheck,
+  ArrowRight,
+  Lock,
+  Mail,
+  User,
+  AlertCircle
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 
 export const Login = () => {
-  const [username, setUsername] = useState('');
+  const [searchParams] = useSearchParams();
+  const initialSection = searchParams.get('role') === 'ORGANIZER' ? 'ORGANIZER' : 'PLAYER';
+
+  const [loginSection, setLoginSection] = useState(initialSection);
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState(false);
 
   const { login } = useAuth();
   const { showToast } = useToast();
@@ -15,18 +31,42 @@ export const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!username.trim() || !password) {
-      showToast('Please enter both username and password', 'error');
+    setUnverifiedEmail(false);
+
+    if (!email.trim() || !password) {
+      showToast('Please enter both email and password', 'error');
       return;
     }
 
     setLoading(true);
     try {
-      await login(username.trim(), password);
-      showToast('Welcome back, Admin!', 'success');
+      const data = await login(email.trim(), password);
+      const userRole = data.user?.role;
+      const userName = data.user?.full_name || data.user?.email || 'User';
+
+      if (userRole === 'ORGANIZER') {
+        showToast(`Welcome, Tournament Arbiter ${userName}!`, 'success');
+      } else if (userRole === 'ADMIN') {
+        showToast(`Welcome, Administrator ${userName}!`, 'success');
+      } else {
+        showToast(`Welcome back, ${userName}!`, 'success');
+      }
+
       navigate('/');
     } catch (err) {
-      showToast(err.userMessage || 'Login failed', 'error');
+      const serverCode = err.response?.data?.code;
+      if (serverCode === 'EMAIL_NOT_VERIFIED') {
+        setUnverifiedEmail(true);
+        showToast('Please verify your email address before logging in', 'error');
+      } else if (serverCode === 'PENDING_APPROVAL') {
+        showToast('Account is verified and currently pending administrator approval', 'error');
+      } else if (serverCode === 'SUSPENDED') {
+        showToast('Your account has been suspended by an administrator', 'error');
+      } else if (serverCode === 'LOCKED') {
+        showToast('Account temporarily locked due to 5 failed attempts. Wait 15 minutes.', 'error');
+      } else {
+        showToast(err.userMessage || 'Invalid email or password', 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -34,7 +74,7 @@ export const Login = () => {
 
   return (
     <div className="min-h-screen w-full flex flex-col lg:flex-row bg-[#F4F7FB]">
-      {/* Left Panel: Dark Navy with Subtle Chess-Board CSS Pattern */}
+      {/* Left Panel: Dark Navy with Chess Pattern Overlay */}
       <div
         className="lg:w-1/2 p-8 sm:p-12 lg:p-16 flex flex-col justify-between relative overflow-hidden text-white"
         style={{
@@ -115,38 +155,99 @@ export const Login = () => {
           </div>
         </div>
 
-        {/* Footer Quote */}
+        {/* Footer */}
         <div className="relative z-10 text-xs text-slate-400 pt-6 border-t border-white/10 font-medium">
           &copy; 2026 ChessTourn Platform. Professional Tournament Administration.
         </div>
       </div>
 
-      {/* Right Panel: Clean White Card on Light Background */}
+      {/* Right Panel: Clean Card with Dedicated Login Sections */}
       <div className="lg:w-1/2 flex items-center justify-center p-6 sm:p-12 lg:p-16">
         <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200/90 p-8 sm:p-10 shadow-xl">
-          {/* Card Header with Crown Emblem */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-amber-50 text-amber-500 border border-amber-200/60 mb-4 shadow-xs">
-              <Crown className="w-6 h-6" />
+          {/* Header */}
+          <div className="text-center mb-6">
+            <div
+              className={`inline-flex items-center justify-center w-12 h-12 rounded-2xl border mb-3 shadow-xs transition-all ${
+                loginSection === 'PLAYER'
+                  ? 'bg-blue-50 text-blue-600 border-blue-200'
+                  : 'bg-amber-50 text-amber-600 border-amber-200'
+              }`}
+            >
+              {loginSection === 'PLAYER' ? <User className="w-6 h-6" /> : <ShieldCheck className="w-6 h-6" />}
             </div>
-            <h2 className="text-2xl font-black text-slate-900 tracking-tight">Welcome Back</h2>
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+              {loginSection === 'PLAYER' ? 'Player / Competitor Login' : 'Tournament Manager Login'}
+            </h2>
             <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium">
-              Login to continue to your account
+              {loginSection === 'PLAYER'
+                ? 'Sign in to access rating history & register for tournaments'
+                : 'Sign in to manage championships, pairings & match results'}
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Segmented Section Switcher */}
+          <div className="grid grid-cols-2 gap-2 p-1.5 bg-slate-100 rounded-2xl mb-6">
+            <button
+              type="button"
+              onClick={() => {
+                setLoginSection('PLAYER');
+                setUnverifiedEmail(false);
+              }}
+              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                loginSection === 'PLAYER'
+                  ? 'bg-white text-blue-600 shadow-sm border border-slate-200/80'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <User className="w-4 h-4" />
+              <span>User / Player</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setLoginSection('ORGANIZER');
+                setUnverifiedEmail(false);
+              }}
+              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                loginSection === 'ORGANIZER'
+                  ? 'bg-white text-blue-600 shadow-sm border border-slate-200/80'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>Manager &amp; Arbiter</span>
+            </button>
+          </div>
+
+          {/* Unverified Email Alert Banner if applicable */}
+          {unverifiedEmail && (
+            <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-2.5 text-xs text-amber-800">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Email not verified yet</p>
+                <p className="text-[11px] mt-0.5 text-amber-700">
+                  Did you receive a token?{' '}
+                  <Link to="/verify-email" className="font-bold underline text-amber-900">
+                    Verify token now
+                  </Link>
+                </p>
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Username
+                Email Address
               </label>
               <div className="relative">
-                <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="admin"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder={loginSection === 'PLAYER' ? 'player@example.com' : 'arbiter@example.com'}
                   required
                   className="w-full pl-10 pr-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
                 />
@@ -179,14 +280,48 @@ export const Login = () => {
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
                 <>
-                  <span>Sign In</span>
+                  <span>Sign In as {loginSection === 'PLAYER' ? 'Competitor' : 'Manager'}</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
             </button>
           </form>
+
+          {/* Contextual Registration Link */}
+          <div className="mt-6 pt-5 border-t border-slate-100 space-y-2 text-center text-xs text-slate-500">
+            {loginSection === 'PLAYER' ? (
+              <p>
+                New competitor?{' '}
+                <Link
+                  to="/register?role=PLAYER"
+                  className="font-bold text-blue-600 hover:text-blue-700 hover:underline"
+                >
+                  Create Player Account
+                </Link>
+              </p>
+            ) : (
+              <p>
+                New tournament club or arbiter?{' '}
+                <Link
+                  to="/register?role=ORGANIZER"
+                  className="font-bold text-blue-600 hover:text-blue-700 hover:underline"
+                >
+                  Apply as Tournament Manager
+                </Link>
+              </p>
+            )}
+
+            <p className="text-[11px] text-slate-400">
+              Need to verify email?{' '}
+              <Link to="/verify-email" className="font-semibold text-slate-600 hover:underline">
+                Enter token here
+              </Link>
+            </p>
+          </div>
         </div>
       </div>
     </div>
   );
 };
+
+export default Login;

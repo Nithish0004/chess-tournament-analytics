@@ -3,7 +3,8 @@ import {
   getUsers,
   approveOrganizer,
   suspendUser,
-  reactivateUser
+  reactivateUser,
+  updateUserRole
 } from '../controllers/adminController.js';
 import { authMiddleware, requireRole } from '../middleware/authMiddleware.js';
 
@@ -17,5 +18,8 @@ router.get('/users', getUsers);
 router.post('/users/:id/approve', approveOrganizer);
 router.post('/users/:id/suspend', suspendUser);
 router.post('/users/:id/reactivate', reactivateUser);
+router.put('/users/:id/role', updateUserRole);
+router.patch('/users/:id/role', updateUserRole);
+router.post('/users/:id/role', updateUserRole);
 
 export default router;

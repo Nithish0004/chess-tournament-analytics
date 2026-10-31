@@ -4,7 +4,7 @@ import {
   getGames,
   createGameSchema
 } from '../controllers/roundController.js';
-import { authMiddleware, requireRole } from '../middleware/authMiddleware.js';
+import { authMiddleware, requireTournamentAccess } from '../middleware/authMiddleware.js';
 import { validateBody } from '../middleware/validateMiddleware.js';
 
 const router = Router();
@@ -13,6 +13,6 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get('/:id/games', getGames);
-router.post('/:id/games', requireRole('ORGANIZER', 'ADMIN'), validateBody(createGameSchema), createGame);
+router.post('/:id/games', requireTournamentAccess('round'), validateBody(createGameSchema), createGame);
 
 export default router;

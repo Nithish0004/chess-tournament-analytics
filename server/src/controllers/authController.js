@@ -4,6 +4,7 @@ import { pool } from '../config/db.js';
 import { signToken } from '../utils/jwt.js';
 import { hashToken, createAuthToken } from '../utils/tokens.js';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../services/mailService.js';
+import { getPermissions } from '../middleware/authMiddleware.js';
 
 const BCRYPT_ROUNDS = 12;
 
@@ -41,8 +42,12 @@ export const resendVerificationSchema = z.object({
 });
 
 export const loginSchema = z.object({
-  email: z.string().trim().email('Invalid email address'),
+  email: z.string().trim().optional(),
+  username: z.string().trim().optional(),
   password: z.string().min(1, 'Password is required')
+}).refine(data => !!(data.email || data.username), {
+  message: 'Email is required',
+  path: ['email']
 });
 
 export const forgotPasswordSchema = z.object({
@@ -314,8 +319,9 @@ export const resendVerification = async (req, res, next) => {
 };
 
 export const login = async (req, res, next) => {
-  const { email: rawEmail, password } = req.body;
-  const email = rawEmail.trim().toLowerCase();
+  const { email: rawEmail, username: rawUsername, password } = req.body;
+  const inputEmail = rawEmail || rawUsername || '';
+  const email = inputEmail.trim().toLowerCase();
 
   try {
     const [rows] = await pool.query(
@@ -397,6 +403,8 @@ export const login = async (req, res, next) => {
       player_id: user.player_id
     });
 
+    const permissions = getPermissions(user.role);
+
     const userResponse = {
       user_id: user.user_id,
       email: user.email,
@@ -408,13 +416,15 @@ export const login = async (req, res, next) => {
       organization: user.organization,
       player_id: user.player_id,
       created_at: user.created_at,
-      last_login_at: new Date()
+      last_login_at: new Date(),
+      permissions
     };
 
     return res.status(200).json({
       message: 'Login successful',
       token,
-      user: userResponse
+      user: userResponse,
+      permissions
     });
   } catch (err) {
     next(err);
@@ -541,6 +551,7 @@ export const getMe = async (req, res, next) => {
     }
 
     const user = rows[0];
+    user.permissions = getPermissions(user.role);
 
     if (user.player_id) {
       const [playerRows] = await pool.query(

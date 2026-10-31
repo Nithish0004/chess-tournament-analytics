@@ -99,10 +99,13 @@ export const Results = () => {
           getTournamentsApi(),
           loadRecentResults()
         ]);
-        setTournaments(tournData);
-        if (tournData.length > 0) {
-          const active = tournData.find((t) => t.status === 'ONGOING') || tournData[0];
+        const manageableTournaments = (tournData || []).filter((t) => t.can_manage);
+        setTournaments(manageableTournaments);
+        if (manageableTournaments.length > 0) {
+          const active = manageableTournaments.find((t) => t.status === 'ONGOING') || manageableTournaments[0];
           setSelectedTournamentId(String(active.tournament_id));
+        } else {
+          setSelectedTournamentId('');
         }
       } catch (err) {
         showToast(err.userMessage || 'Failed to initialize tournament data', 'error');
@@ -269,14 +272,18 @@ export const Results = () => {
                     setSelectedTournamentId(e.target.value);
                     setActualRatingChanges(null);
                   }}
-                  disabled={loadingInitial}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                  disabled={loadingInitial || tournaments.length === 0}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all disabled:opacity-50"
                 >
-                  {tournaments.map((t) => (
-                    <option key={t.tournament_id} value={t.tournament_id}>
-                      {t.name} ({t.status})
-                    </option>
-                  ))}
+                  {tournaments.length === 0 ? (
+                    <option value="">No manageable tournaments found</option>
+                  ) : (
+                    tournaments.map((t) => (
+                      <option key={t.tournament_id} value={t.tournament_id}>
+                        {t.name} ({t.status})
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 

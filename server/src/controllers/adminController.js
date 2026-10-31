@@ -73,7 +73,8 @@ export const suspendUser = async (req, res, next) => {
 
   if (Number(id) === Number(req.user.user_id)) {
     return res.status(400).json({
-      error: 'An admin cannot suspend themselves'
+      error: 'An admin cannot suspend themselves',
+      message: 'An admin cannot suspend themselves'
     });
   }
 
@@ -126,9 +127,53 @@ export const reactivateUser = async (req, res, next) => {
   }
 };
 
+export const updateUserRole = async (req, res, next) => {
+  const { id } = req.params;
+  const { role } = req.body;
+
+  if (Number(id) === Number(req.user.user_id)) {
+    return res.status(400).json({
+      error: 'An admin cannot change their own role',
+      message: 'An admin cannot change their own role'
+    });
+  }
+
+  if (!role || !['ADMIN', 'ORGANIZER', 'PLAYER'].includes(role)) {
+    return res.status(400).json({
+      error: 'Role must be ADMIN, ORGANIZER, or PLAYER',
+      message: 'Role must be ADMIN, ORGANIZER, or PLAYER'
+    });
+  }
+
+  try {
+    const [rows] = await pool.query(
+      'SELECT user_id, role FROM app_user WHERE user_id = ?',
+      [id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    await pool.query(
+      'UPDATE app_user SET role = ? WHERE user_id = ?',
+      [role, id]
+    );
+
+    return res.status(200).json({
+      message: 'User role updated successfully',
+      user_id: Number(id),
+      role
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export default {
   getUsers,
   approveOrganizer,
   suspendUser,
-  reactivateUser
+  reactivateUser,
+  updateUserRole
 };

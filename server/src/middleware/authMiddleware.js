@@ -77,20 +77,208 @@ export const requireRole = (...roles) => {
 };
 
 /**
- * Ownership verification helpers for tournaments, rounds, and games.
+ * Loads the tournament associated with the request (from tournament, round, or game)
+ * and enforces the tournament RBAC rules:
+ * - ADMIN on any tournament (even COMPLETED).
+ * - If COMPLETED and non-ADMIN: 403 "Tournament is completed".
+ * - PLAYER never: 403 "Forbidden: Players cannot manage tournaments".
+ * - ORGANIZER only where created_by = their user_id: 403 otherwise.
+ */
+export const requireTournamentAccess = (from = 'tournament') => {
+  return async (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const { id } = req.params;
+    let tournament = null;
+
+    try {
+      if (from === 'round') {
+        const [rows] = await pool.query(
+          `SELECT t.tournament_id, t.name, t.status, t.created_by
+           FROM tournament_round tr
+           JOIN tournament t ON t.tournament_id = tr.tournament_id
+           WHERE tr.round_id = ?`,
+          [id]
+        );
+        if (rows.length === 0) {
+          const [rCheck] = await pool.query(
+            'SELECT round_id FROM tournament_round WHERE round_id = ?',
+            [id]
+          );
+          if (rCheck.length === 0) {
+            return res.status(404).json({ error: 'Round not found' });
+          }
+          return res.status(404).json({ error: 'Tournament not found' });
+        }
+        tournament = rows[0];
+      } else if (from === 'game') {
+        const [rows] = await pool.query(
+          `SELECT t.tournament_id, t.name, t.status, t.created_by
+           FROM game g
+           JOIN tournament_round tr ON tr.round_id = g.round_id
+           JOIN tournament t ON t.tournament_id = tr.tournament_id
+           WHERE g.game_id = ?`,
+          [id]
+        );
+        if (rows.length === 0) {
+          const [gCheck] = await pool.query(
+            'SELECT game_id FROM game WHERE game_id = ?',
+            [id]
+          );
+          if (gCheck.length === 0) {
+            return res.status(404).json({ error: 'Game not found' });
+          }
+          return res.status(404).json({ error: 'Tournament not found' });
+        }
+        tournament = rows[0];
+      } else {
+        const [rows] = await pool.query(
+          'SELECT tournament_id, name, status, created_by FROM tournament WHERE tournament_id = ?',
+          [id]
+        );
+        if (rows.length === 0) {
+          return res.status(404).json({ error: 'Tournament not found' });
+        }
+        tournament = rows[0];
+      }
+
+      req.tournament = tournament;
+
+      // ADMIN may manage any tournament, including COMPLETED ones
+      if (req.user.role === 'ADMIN') {
+        return next();
+      }
+
+      // If the tournament is COMPLETED, only ADMIN may change anything about it
+      if (tournament.status === 'COMPLETED') {
+        return res.status(403).json({
+          error: 'Tournament is completed',
+          message: 'Tournament is completed',
+          code: 'TOURNAMENT_COMPLETED'
+        });
+      }
+
+      // PLAYER never manages tournaments
+      if (req.user.role === 'PLAYER') {
+        return res.status(403).json({
+          error: 'Forbidden: Players cannot manage tournaments',
+          message: 'Forbidden: Players cannot manage tournaments',
+          code: 'FORBIDDEN'
+        });
+      }
+
+      // ORGANIZER only where created_by = their user_id
+      if (req.user.role === 'ORGANIZER') {
+        if (tournament.created_by == null || Number(tournament.created_by) !== Number(req.user.user_id)) {
+          return res.status(403).json({
+            error: 'Forbidden: You can only manage tournaments you created',
+            message: 'Forbidden: You can only manage tournaments you created',
+            code: 'FORBIDDEN'
+          });
+        }
+        return next();
+      }
+
+      return res.status(403).json({
+        error: 'Forbidden: Insufficient permissions',
+        code: 'FORBIDDEN'
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+};
+
+/**
+ * Checks authorization for player update operations (PUT /api/players/:id):
+ * - Direct rating edits are rejected with 400 "Rating cannot be edited directly".
+ * - ADMIN: allowed on any player.
+ * - PLAYER: allowed only where id = their player_id.
+ * - ORGANIZER: allowed only when the player has NO linked app_user (app_user.player_id).
+ */
+const handleSelfOrAdmin = async (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  // Reject direct rating edit early if present
+  if (req.body && req.body.current_rating !== undefined) {
+    return res.status(400).json({
+      error: 'Rating cannot be edited directly',
+      message: 'Rating cannot be edited directly'
+    });
+  }
+
+  // ADMIN can edit any player
+  if (req.user.role === 'ADMIN') {
+    return next();
+  }
+
+  const targetPlayerId = Number(req.params.id);
+
+  // PLAYER only where id = their player_id
+  if (req.user.role === 'PLAYER') {
+    if (req.user.player_id != null && Number(req.user.player_id) === targetPlayerId) {
+      return next();
+    }
+    return res.status(403).json({
+      error: 'Forbidden: You can only update your own player profile',
+      message: 'Forbidden: You can only update your own player profile',
+      code: 'FORBIDDEN'
+    });
+  }
+
+  // ORGANIZER only when the player has NO linked app_user
+  if (req.user.role === 'ORGANIZER') {
+    try {
+      const [playerRows] = await pool.query(
+        'SELECT player_id FROM player WHERE player_id = ?',
+        [targetPlayerId]
+      );
+      if (playerRows.length === 0) {
+        return res.status(404).json({ error: 'Player not found' });
+      }
+
+      const [userRows] = await pool.query(
+        'SELECT user_id FROM app_user WHERE player_id = ?',
+        [targetPlayerId]
+      );
+      if (userRows.length > 0) {
+        return res.status(403).json({
+          error: 'Forbidden: Organizers can only edit players without a linked user account',
+          message: 'Forbidden: Organizers can only edit players without a linked user account',
+          code: 'FORBIDDEN'
+        });
+      }
+      return next();
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  return res.status(403).json({
+    error: 'Forbidden: Insufficient permissions',
+    code: 'FORBIDDEN'
+  });
+};
+
+export const requireSelfOrAdmin = (reqOrOptions, res, next) => {
+  if (typeof next === 'function') {
+    return handleSelfOrAdmin(reqOrOptions, res, next);
+  }
+  return (req, res, next) => handleSelfOrAdmin(req, res, next);
+};
+
+/**
+ * Ownership verification helpers for backward compatibility.
  */
 export const checkTournamentOwnership = async (req, res, tournamentId) => {
   if (req.user.role === 'ADMIN') return true;
-  if (req.user.role === 'PLAYER') {
-    res.status(403).json({
-      error: 'Forbidden: Players cannot manage tournaments',
-      code: 'FORBIDDEN'
-    });
-    return false;
-  }
 
   const [rows] = await pool.query(
-    'SELECT tournament_id, created_by FROM tournament WHERE tournament_id = ?',
+    'SELECT tournament_id, created_by, status FROM tournament WHERE tournament_id = ?',
     [tournamentId]
   );
 
@@ -99,7 +287,24 @@ export const checkTournamentOwnership = async (req, res, tournamentId) => {
     return false;
   }
 
-  if (rows[0].created_by !== req.user.user_id) {
+  if (rows[0].status === 'COMPLETED') {
+    res.status(403).json({
+      error: 'Tournament is completed',
+      message: 'Tournament is completed',
+      code: 'TOURNAMENT_COMPLETED'
+    });
+    return false;
+  }
+
+  if (req.user.role === 'PLAYER') {
+    res.status(403).json({
+      error: 'Forbidden: Players cannot manage tournaments',
+      code: 'FORBIDDEN'
+    });
+    return false;
+  }
+
+  if (rows[0].created_by == null || Number(rows[0].created_by) !== Number(req.user.user_id)) {
     res.status(403).json({
       error: 'Forbidden: You can only manage tournaments you created',
       code: 'FORBIDDEN'
@@ -112,16 +317,9 @@ export const checkTournamentOwnership = async (req, res, tournamentId) => {
 
 export const checkRoundOwnership = async (req, res, roundId) => {
   if (req.user.role === 'ADMIN') return true;
-  if (req.user.role === 'PLAYER') {
-    res.status(403).json({
-      error: 'Forbidden: Players cannot manage tournament rounds or games',
-      code: 'FORBIDDEN'
-    });
-    return false;
-  }
 
   const [rows] = await pool.query(
-    `SELECT tr.round_id, t.created_by
+    `SELECT tr.round_id, t.created_by, t.status
      FROM tournament_round tr
      JOIN tournament t ON t.tournament_id = tr.tournament_id
      WHERE tr.round_id = ?`,
@@ -133,7 +331,24 @@ export const checkRoundOwnership = async (req, res, roundId) => {
     return false;
   }
 
-  if (rows[0].created_by !== req.user.user_id) {
+  if (rows[0].status === 'COMPLETED') {
+    res.status(403).json({
+      error: 'Tournament is completed',
+      message: 'Tournament is completed',
+      code: 'TOURNAMENT_COMPLETED'
+    });
+    return false;
+  }
+
+  if (req.user.role === 'PLAYER') {
+    res.status(403).json({
+      error: 'Forbidden: Players cannot manage tournament rounds or games',
+      code: 'FORBIDDEN'
+    });
+    return false;
+  }
+
+  if (rows[0].created_by == null || Number(rows[0].created_by) !== Number(req.user.user_id)) {
     res.status(403).json({
       error: 'Forbidden: You can only manage games in tournaments you created',
       code: 'FORBIDDEN'
@@ -146,16 +361,9 @@ export const checkRoundOwnership = async (req, res, roundId) => {
 
 export const checkGameOwnership = async (req, res, gameId) => {
   if (req.user.role === 'ADMIN') return true;
-  if (req.user.role === 'PLAYER') {
-    res.status(403).json({
-      error: 'Forbidden: Players cannot record game results',
-      code: 'FORBIDDEN'
-    });
-    return false;
-  }
 
   const [rows] = await pool.query(
-    `SELECT g.game_id, t.created_by
+    `SELECT g.game_id, t.created_by, t.status
      FROM game g
      JOIN tournament_round tr ON tr.round_id = g.round_id
      JOIN tournament t ON t.tournament_id = tr.tournament_id
@@ -168,7 +376,24 @@ export const checkGameOwnership = async (req, res, gameId) => {
     return false;
   }
 
-  if (rows[0].created_by !== req.user.user_id) {
+  if (rows[0].status === 'COMPLETED') {
+    res.status(403).json({
+      error: 'Tournament is completed',
+      message: 'Tournament is completed',
+      code: 'TOURNAMENT_COMPLETED'
+    });
+    return false;
+  }
+
+  if (req.user.role === 'PLAYER') {
+    res.status(403).json({
+      error: 'Forbidden: Players cannot record game results',
+      code: 'FORBIDDEN'
+    });
+    return false;
+  }
+
+  if (rows[0].created_by == null || Number(rows[0].created_by) !== Number(req.user.user_id)) {
     res.status(403).json({
       error: 'Forbidden: You can only record results for tournaments you created',
       code: 'FORBIDDEN'
@@ -179,11 +404,80 @@ export const checkGameOwnership = async (req, res, gameId) => {
   return true;
 };
 
+/**
+ * Returns a permissions dictionary for the given role.
+ */
+export const getPermissions = (role) => {
+  switch (role) {
+    case 'ADMIN':
+      return {
+        can_view_dashboard: true,
+        can_view_tournaments: true,
+        can_view_players: true,
+        can_view_sensitive_player_data: true,
+        can_create_tournament: true,
+        can_manage_any_tournament: true,
+        can_manage_completed_tournaments: true,
+        can_create_player: true,
+        can_edit_all_players: true,
+        can_register_players: true,
+        can_self_register: false,
+        can_create_rounds: true,
+        can_create_games: true,
+        can_record_results: true,
+        can_access_admin: true
+      };
+    case 'ORGANIZER':
+      return {
+        can_view_dashboard: true,
+        can_view_tournaments: true,
+        can_view_players: true,
+        can_view_sensitive_player_data: true,
+        can_create_tournament: true,
+        can_manage_any_tournament: false,
+        can_manage_completed_tournaments: false,
+        can_create_player: true,
+        can_edit_all_players: false,
+        can_edit_unlinked_players: true,
+        can_register_players: true,
+        can_self_register: false,
+        can_create_rounds: true,
+        can_create_games: true,
+        can_record_results: true,
+        can_access_admin: false
+      };
+    case 'PLAYER':
+      return {
+        can_view_dashboard: true,
+        can_view_tournaments: true,
+        can_view_players: true,
+        can_view_sensitive_player_data: false,
+        can_create_tournament: false,
+        can_manage_any_tournament: false,
+        can_manage_completed_tournaments: false,
+        can_create_player: false,
+        can_edit_all_players: false,
+        can_edit_own_player: true,
+        can_register_players: false,
+        can_self_register: true,
+        can_create_rounds: false,
+        can_create_games: false,
+        can_record_results: false,
+        can_access_admin: false
+      };
+    default:
+      return {};
+  }
+};
+
 export default {
   authMiddleware,
   requireAuth,
   requireRole,
+  requireTournamentAccess,
+  requireSelfOrAdmin,
   checkTournamentOwnership,
   checkRoundOwnership,
-  checkGameOwnership
+  checkGameOwnership,
+  getPermissions
 };

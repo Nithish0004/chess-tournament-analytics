@@ -1,8 +1,32 @@
 import api from './axios';
 
 // Auth
-export const loginApi = async (username, password) => {
-  const { data } = await api.post('/auth/login', { username, password });
+export const loginApi = async (emailOrUsername, password) => {
+  const { data } = await api.post('/auth/login', {
+    email: emailOrUsername,
+    username: emailOrUsername,
+    password
+  });
+  return data;
+};
+
+export const registerApi = async (registrationData) => {
+  const { data } = await api.post('/auth/register', registrationData);
+  return data;
+};
+
+export const verifyEmailApi = async (token) => {
+  const { data } = await api.post('/auth/verify-email', { token });
+  return data;
+};
+
+export const resendVerificationApi = async (email) => {
+  const { data } = await api.post('/auth/resend-verification', { email });
+  return data;
+};
+
+export const getMeApi = async () => {
+  const { data } = await api.get('/auth/me');
   return data;
 };
 
@@ -58,6 +82,11 @@ export const registerPlayerApi = async (tournamentId, playerId) => {
   const { data } = await api.post(`/tournaments/${tournamentId}/register`, {
     player_id: Number(playerId)
   });
+  return data;
+};
+
+export const registerMeApi = async (tournamentId) => {
+  const { data } = await api.post(`/tournaments/${tournamentId}/register-me`);
   return data;
 };
 
@@ -117,3 +146,20 @@ export const getDashboardApi = async () => {
   const { data } = await api.get('/dashboard');
   return data;
 };
+
+// Admin
+export const getAdminUsersApi = async () => {
+  const { data } = await api.get('/admin/users');
+  return data;
+};
+
+export const updateAdminUserRoleApi = async (userId, role) => {
+  const { data } = await api.put(`/admin/users/${userId}/role`, { role });
+  return data;
+};
+
+export const updateAdminUserStatusApi = async (userId, status) => {
+  const { data } = await api.put(`/admin/users/${userId}/status`, { status });
+  return data;
+};
+

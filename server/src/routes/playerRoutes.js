@@ -9,7 +9,7 @@ import {
   updatePlayerSchema,
   checkNoDirectRatingEdit
 } from '../controllers/playerController.js';
-import { authMiddleware, requireRole } from '../middleware/authMiddleware.js';
+import { authMiddleware, requireRole, requireSelfOrAdmin } from '../middleware/authMiddleware.js';
 import { validateBody } from '../middleware/validateMiddleware.js';
 
 const router = Router();
@@ -22,6 +22,6 @@ router.get('/:id/analytics', getPlayerAnalytics);
 router.get('/:id', getPlayerById);
 
 router.post('/', requireRole('ORGANIZER', 'ADMIN'), validateBody(createPlayerSchema), createPlayer);
-router.put('/:id', checkNoDirectRatingEdit, validateBody(updatePlayerSchema), updatePlayer);
+router.put('/:id', checkNoDirectRatingEdit, requireSelfOrAdmin, validateBody(updatePlayerSchema), updatePlayer);
 
 export default router;

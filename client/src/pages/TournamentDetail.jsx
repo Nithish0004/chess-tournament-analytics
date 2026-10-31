@@ -34,6 +34,7 @@ import {
   updateTournamentApi,
   getRegistrationsApi,
   registerPlayerApi,
+  registerMeApi,
   getRoundsApi,
   createRoundApi,
   getGamesByRoundApi,
@@ -72,6 +73,7 @@ export const TournamentDetail = () => {
   // Modals & form states
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [selectedPlayerToRegister, setSelectedPlayerToRegister] = useState('');
+  const [joining, setJoining] = useState(false);
 
   const [isAddGameModalOpen, setIsAddGameModalOpen] = useState(false);
   const [targetRoundId, setTargetRoundId] = useState(null);
@@ -83,8 +85,29 @@ export const TournamentDetail = () => {
 
   const [submitting, setSubmitting] = useState(false);
 
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, user } = useAuth();
   const { showToast } = useToast();
+
+  const canManageTournament = Boolean(
+    tournament?.can_manage && !(user?.role === 'ORGANIZER' && tournament?.status === 'COMPLETED')
+  );
+
+  const isPlayerRegistered = Boolean(
+    user?.player_id && registrations.some((r) => Number(r.player_id) === Number(user.player_id))
+  );
+
+  const handleJoinTournament = async () => {
+    setJoining(true);
+    try {
+      await registerMeApi(id);
+      showToast('Successfully registered for tournament!', 'success');
+      await Promise.all([fetchRegistrations(), fetchStandings(), fetchTournament()]);
+    } catch (err) {
+      showToast(err.userMessage || 'Failed to join tournament', 'error');
+    } finally {
+      setJoining(false);
+    }
+  };
 
   const fetchTournament = useCallback(async () => {
     try {
@@ -370,26 +393,50 @@ export const TournamentDetail = () => {
           </div>
         </div>
 
-        {/* Admin Quick Status Changer */}
-        {isLoggedIn && (
-          <div className="flex items-center gap-1.5 bg-slate-50 p-1.5 rounded-xl border border-slate-200 self-start lg:self-auto">
-            <span className="text-xs font-bold text-slate-500 px-2">Status:</span>
-            {['UPCOMING', 'ONGOING', 'COMPLETED'].map((s) => (
+        {/* Header Action Controls: Join Tournament, Status Changer, or View-only label */}
+        <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
+          {user?.role === 'PLAYER' && tournament.status === 'UPCOMING' && (
+            isPlayerRegistered ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-xs border border-emerald-200">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Registered</span>
+              </span>
+            ) : (
               <button
-                key={s}
-                onClick={() => handleStatusChange(s)}
-                disabled={tournament.status === s}
-                className={`text-xs px-3 py-1 rounded-lg font-bold transition-all ${
-                  tournament.status === s
-                    ? 'bg-[#2563EB] text-white shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                }`}
+                onClick={handleJoinTournament}
+                disabled={joining}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
               >
-                {s}
+                {joining ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />}
+                <span>Join Tournament</span>
               </button>
-            ))}
-          </div>
-        )}
+            )
+          )}
+
+          {canManageTournament ? (
+            <div className="flex items-center gap-1.5 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+              <span className="text-xs font-bold text-slate-500 px-2">Status:</span>
+              {['UPCOMING', 'ONGOING', 'COMPLETED'].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => handleStatusChange(s)}
+                  disabled={tournament.status === s}
+                  className={`text-xs px-3 py-1 rounded-lg font-bold transition-all ${
+                    tournament.status === s
+                      ? 'bg-[#2563EB] text-white shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <span className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+              {tournament.owner_name ? `Owned by ${tournament.owner_name}` : 'View only'}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Tabs Bar */}
@@ -493,7 +540,7 @@ export const TournamentDetail = () => {
                 Manage scheduled tournament fixtures and record official board outcomes
               </p>
             </div>
-            {isLoggedIn && (
+            {canManageTournament && (
               <button
                 onClick={handleCreateRound}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all self-start sm:self-auto"
@@ -539,7 +586,7 @@ export const TournamentDetail = () => {
                       </span>
                     </div>
 
-                    {isLoggedIn && r.status !== 'COMPLETED' && (
+                    {canManageTournament && r.status !== 'COMPLETED' && (
                       <button
                         onClick={() => openAddGameModal(r.round_id)}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:text-blue-600 text-xs font-bold shadow-2xs hover:border-blue-300 transition-all"
@@ -629,7 +676,7 @@ export const TournamentDetail = () => {
                                     {g.outcome}
                                   </Badge>
                                 </div>
-                              ) : isLoggedIn ? (
+                              ) : canManageTournament ? (
                                 <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200">
                                   <span className="text-[10px] uppercase font-bold text-slate-500 px-1.5">
                                     Record:
@@ -679,7 +726,7 @@ export const TournamentDetail = () => {
           subtitle="Players registered in this tournament with entry Elo snapshot"
           padding="p-0"
           actions={
-            isLoggedIn && tournament.status !== 'COMPLETED' && (
+            canManageTournament && tournament.status !== 'COMPLETED' && (
               <button
                 onClick={() => setIsRegisterModalOpen(true)}
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs rounded-xl shadow-2xs transition-all"

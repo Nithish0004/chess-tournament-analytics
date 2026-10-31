@@ -23,11 +23,11 @@ server/
 ├── .env.example              # Environment variables template
 ├── package.json              # Express 5 dependencies and npm scripts
 ├── requests.http             # HTTP client collection for all endpoints
-├── README.md                 # Setup and run instructions
+├── README.md                 # Setup, RBAC specification, and API reference
 ├── scripts/
 │   ├── seed-admin.js         # Upserts active, verified ADMIN into app_user
 │   ├── seed-demo.js          # Populates 16 players, 2 tournaments, rounds & games
-│   └── test-all-endpoints.js # Automated verification suite for auth, roles, and endpoints
+│   └── test-all-endpoints.js # 116-case table-driven RBAC & security verification suite
 └── src/
     ├── app.js                # Express app factory with helmet, cors, and route registrations
     ├── server.js             # Server entry point with graceful shutdown
@@ -35,15 +35,15 @@ server/
     │   ├── db.js             # mysql2/promise connection pool configuration
     │   └── env.js            # Environment validation (JWT_SECRET min 32 chars fail-fast)
     ├── controllers/
-    │   ├── adminController.js # Admin user approval, suspension, and reactivation
+    │   ├── adminController.js # Admin user approval, suspension, reactivation, role management
     │   ├── authController.js  # Registration, email verify, login, password reset, profile
-    │   ├── playerController.js
-    │   ├── tournamentController.js
-    │   ├── roundController.js
-    │   ├── gameController.js
-    │   └── dashboardController.js
+    │   ├── playerController.js # Player listing, masking, walk-in creation, profile updates
+    │   ├── tournamentController.js # Tournament CRUD, standings, analytics, self-registration
+    │   ├── roundController.js # Tournament round game pairings
+    │   ├── gameController.js  # Game results & stored procedure invocations
+    │   └── dashboardController.js # Aggregated statistics and highlights
     ├── middleware/
-    │   ├── authMiddleware.js     # Enforces JWT + active status check + role/ownership checks
+    │   ├── authMiddleware.js     # authMiddleware, requireRole, requireTournamentAccess, requireSelfOrAdmin
     │   ├── errorHandler.js       # Central error handler mapping MySQL error codes
     │   ├── rateLimitMiddleware.js # Rate limiting for auth and login
     │   └── validateMiddleware.js # Zod request body validation
@@ -100,13 +100,9 @@ npm install
 ```
 
 ### 2. Seed Admin User
-Upserts an `ACTIVE`, `email_verified` ADMIN in `app_user`. All three arguments are required (`email`, `password`, `full_name`):
+Upserts an `ACTIVE`, `email_verified` ADMIN in `app_user`:
 ```bash
 node scripts/seed-admin.js <email> <password> <full_name>
-```
-Example:
-```bash
-node scripts/seed-admin.js admin@example.com ReplaceWithStrongPassword123! "Site Administrator"
 ```
 
 ### 3. Start Server
@@ -119,97 +115,140 @@ npm start
 ```
 
 ### 4. Run Test Suite
-Runs the comprehensive verification suite against unique `@test.local` records and automatically cleans them up afterwards:
+Runs the comprehensive 116-case table-driven RBAC verification suite against unique `@test.local` records and automatically cleans them up without touching demo data:
 ```bash
 node scripts/test-all-endpoints.js
 ```
 
 ---
 
-## Authentication & Authorization Model
+## Role-Based Access Control (RBAC) Specification
 
-### Roles & Permissions
+Role-based access control is enforced **strictly on the server** across every route. The client UI is purely a convenience layer.
 
-| Role | Allowed Actions |
-|---|---|
-| **ADMIN** | Full access to all endpoints, user management (approve organizers, suspend/reactivate users), create and manage any tournament, round, game, and result. |
-| **ORGANIZER** | Create tournaments (sets `tournament.created_by`), edit/status-change owned tournaments, register players, create rounds and games, record results for owned tournaments. Blocked from managing tournaments created by other organizers. |
-| **PLAYER** | View data, update own player profile (`PUT /api/players/:id` where `id == player_id`), and self-register for upcoming tournaments via `POST /api/tournaments/:id/register-me`. Forbidden from creating tournaments, rounds, games, or recording results. |
+### Core Permission Rules
 
-### Database Status Check
-The `authMiddleware` validates the JWT bearer token and **re-verifies the user's status (`ACTIVE`) in the database** on every request. If an admin suspends a user, the user is blocked immediately even if their token has not expired.
-
-### Rate Limiting & Account Lockout
-- **Rate Limit**: ~10 requests per 15 minutes per IP on `/api/auth` endpoints.
-- **Password Lockout**: After 5 failed password attempts on an account, `locked_until` is set to `NOW() + 15 MINUTE`. Subsequent login attempts while locked return `429 Too Many Requests`.
-- **Generic Responses**: `POST /api/auth/register`, `POST /api/auth/resend-verification`, and `POST /api/auth/forgot-password` return generic responses to prevent account enumeration.
-
-### Tokens & Links
-- Generated using `crypto.randomBytes(32).toString('hex')`.
-- Only the **SHA-256 hash** (`auth_token.token_hash`) is stored in the database.
-- Single-use: `used_at` timestamp is set upon redemption.
-- **Verification links**: expire in 24 hours.
-- **Password reset links**: expire in 1 hour.
+1. **Dashboard, Tournaments, Standings, Analytics, Predictions**: Any user with `status = 'ACTIVE'` may read these endpoints.
+2. **Player Privacy & Masking (`GET /api/players`, `GET /api/players/:id`)**:
+   - `PLAYER`: Receives other players **WITHOUT** `email` and `date_of_birth` (omitted from the JSON payload). Only their own player profile contains full details.
+   - `ADMIN` and `ORGANIZER`: See full player records including `email` and `date_of_birth`.
+   - Every returned player record contains a calculated boolean `can_edit`.
+3. **Tournament Creation (`POST /api/tournaments`)**:
+   - Allowed for `ADMIN` and `ORGANIZER`.
+   - Sets `tournament.created_by = req.user.user_id` server-side (body cannot override).
+   - Every tournament object returned by `GET /api/tournaments` and `GET /api/tournaments/:id` includes `created_by`, `owner_name`, and `can_manage`.
+4. **Tournament Management (Edit, Status, Player Registration, Rounds, Games, Results)**:
+   - `ADMIN`: Allowed on any tournament, even when `status = 'COMPLETED'`.
+   - `ORGANIZER`: Allowed **only** where `created_by = req.user.user_id`. Forbidden on tournaments created by other organizers (`403 Forbidden`).
+   - If `status = 'COMPLETED'`: Non-admins are blocked from changes (`403 "Tournament is completed"`).
+   - `PLAYER`: Never allowed to manage tournaments (`403 Forbidden`).
+5. **Self-Registration (`POST /api/tournaments/:id/register-me`)**:
+   - Allowed **only** for role `PLAYER`.
+   - Tournament must be `UPCOMING` (otherwise `400 "Registration is only open for UPCOMING tournaments"`).
+   - `player_id` is extracted strictly from the authenticated token session (`req.user.player_id`).
+6. **Player Creation (`POST /api/players`)**:
+   - Walk-in players without user accounts may be created by `ADMIN` and `ORGANIZER`.
+   - `PLAYER` is blocked (`403 Forbidden`).
+7. **Player Profile Updates (`PUT /api/players/:id`)**:
+   - `ADMIN`: May update any player.
+   - `PLAYER`: May update **only** their own player profile (`Number(id) === req.user.player_id`).
+   - `ORGANIZER`: May update **only** walk-in players with **NO linked user account** (`app_user.player_id IS NULL`). If the player has a linked account, returns `403`.
+   - Direct rating updates are forbidden for everyone: passing `current_rating` in the body returns `400 "Rating cannot be edited directly"`.
+8. **Rating Immutability**:
+   - Nobody can modify a player rating directly. Rating adjustments occur solely via the database stored procedure `CALL record_result(p_game_id, p_outcome)` upon completing a scheduled game.
+9. **Admin Self-Protection (`/api/admin/*`)**:
+   - Only `ADMIN` role can access `/api/admin/*`.
+   - An administrator cannot suspend themselves (`400 "An admin cannot suspend themselves"`).
+   - An administrator cannot change their own role (`400 "An admin cannot change their own role"`).
+10. **Session Permissions Payload**:
+    - Both `POST /api/auth/login` and `GET /api/auth/me` return a structured `permissions` object detailing the user's role capabilities.
 
 ---
 
-## API Endpoints Reference
+## RBAC Permission Matrix
 
-### Authentication (`/api/auth`)
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `POST` | `/api/auth/register` | Public | Register `PLAYER` or `ORGANIZER` (ADMIN prohibited). Sends verification email. |
-| `POST` | `/api/auth/verify-email` | Public | Verifies email token (PLAYER $\rightarrow$ `ACTIVE`, ORGANIZER $\rightarrow$ `PENDING_APPROVAL`). |
-| `POST` | `/api/auth/resend-verification` | Public | Resends verification email (60s cooldown per account). |
-| `POST` | `/api/auth/login` | Public | Returns 8h JWT and user info. 5 failed attempts locks account for 15 min. |
-| `POST` | `/api/auth/forgot-password` | Public | Generates single-use 1h reset link and sends email. |
-| `POST` | `/api/auth/reset-password` | Public | Resets password using reset token and clears lockout. |
-| `GET` | `/api/auth/me` | Authenticated | Returns current authenticated user and linked player profile. |
-| `PUT` | `/api/auth/me/profile` | Authenticated | Update full_name, phone, country, date_of_birth, organization. |
-| `POST` | `/api/auth/change-password` | Authenticated | Change account password with current and new password. |
+| Action / Capability | ADMIN | ORGANIZER (Owner) | ORGANIZER (Other) | PLAYER | Unauthenticated |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Read Dashboard, Tournaments, Standings, Analytics | ✅ | ✅ | ✅ | ✅ | ❌ (401) |
+| Read Full Player Profile (Email & DOB) | ✅ | ✅ | ✅ | Own Only (Others Masked) | ❌ (401) |
+| Create Tournament | ✅ | ✅ | ✅ | ❌ (403) | ❌ (401) |
+| Edit Tournament Details / Status | ✅ | ✅ | ❌ (403) | ❌ (403) | ❌ (401) |
+| Register Player to Tournament | ✅ | ✅ | ❌ (403) | ❌ (403) | ❌ (401) |
+| Player Self-Registration (`register-me`) | ❌ (403) | ❌ (403) | ❌ (403) | ✅ (Upcoming only) | ❌ (401) |
+| Create Tournament Round | ✅ | ✅ | ❌ (403) | ❌ (403) | ❌ (401) |
+| Create Round Game Matchup | ✅ | ✅ | ❌ (403) | ❌ (403) | ❌ (401) |
+| Record Match Result (`record_result`) | ✅ | ✅ | ❌ (403) | ❌ (403) | ❌ (401) |
+| Modify Completed Tournament (Edits/Rounds/Games/Results) | ✅ | ❌ (403 "Tournament is completed") | ❌ (403) | ❌ (403) | ❌ (401) |
+| Create Walk-in Player | ✅ | ✅ | ✅ | ❌ (403) | ❌ (401) |
+| Edit Walk-in Player (No Linked Account) | ✅ | ✅ | ✅ | ❌ (403) | ❌ (401) |
+| Edit Player With Linked Account | ✅ | ❌ (403) | ❌ (403) | ✅ (Own profile only) | ❌ (401) |
+| Edit Rating Directly (`current_rating`) | ❌ (400) | ❌ (400) | ❌ (400) | ❌ (400) | ❌ (401) |
+| Access Admin Panel & List Users | ✅ | ❌ (403) | ❌ (403) | ❌ (403) | ❌ (401) |
+| Approve Organizer Account | ✅ | ❌ (403) | ❌ (403) | ❌ (403) | ❌ (401) |
+| Suspend User / Reactivate User | ✅ | ❌ (403) | ❌ (403) | ❌ (403) | ❌ (401) |
+| Suspend Own Account | ❌ (400) | — | — | — | — |
+| Change Own Role | ❌ (400) | — | — | — | — |
 
-### Admin Management (`/api/admin`)
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `GET` | `/api/admin/users?status=&role=` | ADMIN | Filter and list all users in `app_user`. |
-| `POST` | `/api/admin/users/:id/approve` | ADMIN | Approves organizer in `PENDING_APPROVAL` to `ACTIVE` and sends approval email. |
-| `POST` | `/api/admin/users/:id/suspend` | ADMIN | Suspends user account (admins cannot suspend themselves). |
-| `POST` | `/api/admin/users/:id/reactivate` | ADMIN | Reactivates suspended user to `ACTIVE`. |
+---
 
-### Tournaments (`/api/tournaments`)
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `GET` | `/api/tournaments` | Authenticated | List all tournaments with player and round counts. |
-| `GET` | `/api/tournaments/:id` | Authenticated | Get tournament by ID. |
-| `POST` | `/api/tournaments` | ORGANIZER, ADMIN | Create tournament (sets `tournament.created_by = user_id`). |
-| `PUT` | `/api/tournaments/:id` | Creator, ADMIN | Update tournament details or status. |
-| `POST` | `/api/tournaments/:id/register` | Creator, ADMIN | Register player for tournament. |
-| `POST` | `/api/tournaments/:id/register-me` | PLAYER | Self-register for upcoming tournament using token `player_id`. |
-| `GET` | `/api/tournaments/:id/registrations` | Authenticated | List registrations for tournament. |
-| `POST` | `/api/tournaments/:id/rounds` | Creator, ADMIN | Auto-increment round and schedule next round. |
-| `GET` | `/api/tournaments/:id/rounds` | Authenticated | List rounds for tournament. |
-| `GET` | `/api/tournaments/:id/standings` | Authenticated | Tournament standings from `v_leaderboard`. |
-| `GET` | `/api/tournaments/:id/analytics` | Authenticated | Tournament match statistics, upsets, and rating changes. |
-| `GET` | `/api/tournaments/:id/predictions` | Authenticated | Tournament performance predictions. |
+## Route-by-Route Specification Table
 
-### Players (`/api/players`)
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `GET` | `/api/players` | Authenticated | List all players (supports search `?q=`). |
-| `GET` | `/api/players/:id` | Authenticated | Get player by ID. |
-| `GET` | `/api/players/:id/analytics` | Authenticated | Player performance, progression, and match history. |
-| `POST` | `/api/players` | ORGANIZER, ADMIN | Create player record directly. |
-| `PUT` | `/api/players/:id` | Self (PLAYER), ORGANIZER, ADMIN | Update player profile (direct rating edits blocked). |
+| Route | Method | Allowed Roles | Enforcement Rule & Behavior |
+|---|:---:|---|---|
+| `/health` | `GET` | Public | Always accessible; returns API status and current timestamp. |
+| `/api/auth/register` | `POST` | Public | Register `PLAYER` or `ORGANIZER` account (ADMIN prohibited). Sends verification email. |
+| `/api/auth/verify-email` | `POST` | Public | Verifies email token (PLAYER $\rightarrow$ `ACTIVE`, ORGANIZER $\rightarrow$ `PENDING_APPROVAL`). |
+| `/api/auth/resend-verification` | `POST` | Public | Resends verification token with 60-second account cooldown. |
+| `/api/auth/login` | `POST` | Public | Authenticates credentials; returns 8h JWT, user profile, and `permissions` object. 5 failed attempts locks account for 15 minutes (`429 LOCKED`). |
+| `/api/auth/forgot-password` | `POST` | Public | Sends single-use 1-hour password reset token to user email. |
+| `/api/auth/reset-password` | `POST` | Public | Resets password with valid reset token and clears lockout. |
+| `/api/auth/me` | `GET` | Authenticated | Returns current authenticated user record with linked `player` profile and `permissions` object. |
+| `/api/auth/me/profile` | `PUT` | Authenticated | Updates current user account details (`full_name`, `phone`, `country`, `date_of_birth`, `organization`). |
+| `/api/auth/change-password` | `POST` | Authenticated | Updates current user password given valid current password. |
+| `/api/dashboard` | `GET` | Any ACTIVE user | Aggregates global tournament, player, upset, and recent activity metrics. |
+| `/api/tournaments` | `GET` | Any ACTIVE user | Lists tournaments. Appends `created_by`, `owner_name`, and boolean `can_manage`. |
+| `/api/tournaments/:id` | `GET` | Any ACTIVE user | Returns tournament by ID with player/round counts, `owner_name`, and `can_manage`. |
+| `/api/tournaments/:id/registrations` | `GET` | Any ACTIVE user | Lists registered players for tournament. |
+| `/api/tournaments/:id/rounds` | `GET` | Any ACTIVE user | Lists rounds scheduled for tournament. |
+| `/api/tournaments/:id/standings` | `GET` | Any ACTIVE user | Returns leaderboard standings from `v_leaderboard`. |
+| `/api/tournaments/:id/analytics` | `GET` | Any ACTIVE user | Returns match statistics, upsets from `v_upsets`, and player rating changes. |
+| `/api/tournaments/:id/predictions` | `GET` | Any ACTIVE user | Returns machine-learning performance predictions. |
+| `/api/tournaments` | `POST` | `ADMIN`, `ORGANIZER` | Creates new tournament. `created_by` is set server-side to `req.user.user_id`. `PLAYER` returns `403`. |
+| `/api/tournaments/:id` | `PUT` | Creator `ORGANIZER`, `ADMIN` | Enforced via `requireTournamentAccess('tournament')`. Creator or ADMIN only. If `COMPLETED`, non-admin receives `403 "Tournament is completed"`. Other organizers and players receive `403`. |
+| `/api/tournaments/:id/register` | `POST` | Creator `ORGANIZER`, `ADMIN` | Enforced via `requireTournamentAccess('tournament')`. Registers player to tournament. Blocked with `403 "Tournament is completed"` if completed. |
+| `/api/tournaments/:id/register-me` | `POST` | `PLAYER` only | Enforced via `requireRole('PLAYER')`. Self-registers caller using `req.user.player_id`. Tournament must be `UPCOMING` (`400`). Admin and Organizers receive `403`. |
+| `/api/tournaments/:id/rounds` | `POST` | Creator `ORGANIZER`, `ADMIN` | Enforced via `requireTournamentAccess('tournament')`. Creates next round. Blocked with `403 "Tournament is completed"` if completed. |
+| `/api/rounds/:id/games` | `GET` | Any ACTIVE user | Lists scheduled and played games in round. |
+| `/api/rounds/:id/games` | `POST` | Creator `ORGANIZER`, `ADMIN` | Enforced via `requireTournamentAccess('round')`. Schedules game board. Blocked with `403 "Tournament is completed"` if completed. |
+| `/api/games/recent` | `GET` | Any ACTIVE user | Returns 10 most recent game results. |
+| `/api/games/:id/result` | `POST` | Creator `ORGANIZER`, `ADMIN` | Enforced via `requireTournamentAccess('game')`. Calls stored procedure `CALL record_result(?, ?)`. Blocked with `403 "Tournament is completed"` if completed. |
+| `/api/players` | `GET` | Any ACTIVE user | Lists players. Appends `can_edit`. For `PLAYER`, other players omit `email` and `date_of_birth`. `ADMIN` and `ORGANIZER` see all fields. |
+| `/api/players/:id` | `GET` | Any ACTIVE user | Returns player profile. Appends `can_edit`. For `PLAYER`, other player record omits `email` and `date_of_birth`. `ADMIN` and `ORGANIZER` see all fields. |
+| `/api/players/:id/analytics` | `GET` | Any ACTIVE user | Returns performance, progression, and match history. Player profile conforms to masking rules. |
+| `/api/players` | `POST` | `ADMIN`, `ORGANIZER` | Enforced via `requireRole('ORGANIZER', 'ADMIN')`. Creates walk-in player with starting rating. `PLAYER` receives `403`. |
+| `/api/players/:id` | `PUT` | `ADMIN`, Self (`PLAYER`), Unlinked (`ORGANIZER`) | Enforced via `checkNoDirectRatingEdit` and `requireSelfOrAdmin`. If `current_rating` provided, returns `400 "Rating cannot be edited directly"`. ADMIN can edit any player; PLAYER can only edit own profile (`id == player_id`); ORGANIZER can only edit walk-in players with no linked user account (linked account returns `403`). |
+| `/api/admin/users` | `GET` | `ADMIN` only | Enforced via `requireRole('ADMIN')`. Lists and filters registered system users. |
+| `/api/admin/users/:id/approve` | `POST` | `ADMIN` only | Approves pending organizer account (`PENDING_APPROVAL` $\rightarrow$ `ACTIVE`) and dispatches notification email. |
+| `/api/admin/users/:id/suspend` | `POST` | `ADMIN` only | Suspends user. Self-suspension blocked (`400 "An admin cannot suspend themselves"`). |
+| `/api/admin/users/:id/reactivate` | `POST` | `ADMIN` only | Reactivates suspended user to `ACTIVE`. |
+| `/api/admin/users/:id/role` | `PUT` / `PATCH` / `POST` | `ADMIN` only | Changes user role (`ADMIN`, `ORGANIZER`, `PLAYER`). Self-role-change blocked (`400 "An admin cannot change their own role"`). |
 
-### Rounds & Games (`/api/rounds`, `/api/games`)
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `GET` | `/api/rounds/:id/games` | Authenticated | List games in round. |
-| `POST` | `/api/rounds/:id/games` | Creator, ADMIN | Schedule board pairing in round. |
-| `GET` | `/api/games/recent` | Authenticated | List recent match results. |
-| `POST` | `/api/games/:id/result` | Creator, ADMIN | Record result (`CALL record_result(?, ?)`) and trigger rating updates. |
+---
 
-### Dashboard (`/api/dashboard`)
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `GET` | `/api/dashboard` | Authenticated | Aggregated stats, top players, recent activity, and upsets. |
+## Reusable Middleware Architecture
+
+Server security is implemented uniformly through modular middleware functions in `src/middleware/authMiddleware.js`:
+
+```javascript
+// 1. Verify token & active status in DB on every request
+authMiddleware(req, res, next)
+
+// 2. Enforce allowed roles
+requireRole('ADMIN', 'ORGANIZER')
+
+// 3. Load tournament and enforce ownership and completed tournament lock
+requireTournamentAccess('tournament' | 'round' | 'game')
+
+// 4. Enforce player profile update permissions and reject direct rating edits
+requireSelfOrAdmin(req, res, next)
+```

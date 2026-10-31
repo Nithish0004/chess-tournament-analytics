@@ -16,8 +16,8 @@ export const TopBar = ({ title = 'Dashboard', subtitle }) => {
     }
   };
 
-  const displayName = user?.username || 'Arjun Mehta';
-  const roleName = isLoggedIn ? 'Administrator' : 'Viewer';
+  const displayName = user?.full_name || user?.email || user?.username || 'Administrator';
+  const roleName = user?.role ? (user.role.charAt(0).toUpperCase() + user.role.slice(1).toLowerCase()) : (isLoggedIn ? 'Administrator' : 'Viewer');
 
   return (
     <header className="bg-white border-b border-slate-200/80 px-6 py-4 sticky top-0 z-20 shadow-2xs">

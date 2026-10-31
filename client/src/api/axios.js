@@ -31,6 +31,16 @@ api.interceptors.response.use(
     
     // Attach clean error message to error object
     error.userMessage = serverMessage;
+
+    // On 403 Forbidden, dispatch global toast event with server message
+    if (error.response?.status === 403 && typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('app:toast', {
+          detail: { message: serverMessage, type: 'error' }
+        })
+      );
+    }
+
     return Promise.reject(error);
   }
 );

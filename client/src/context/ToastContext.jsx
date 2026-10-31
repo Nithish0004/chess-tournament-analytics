@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { Toast } from '../components/Toast';
 
 const ToastContext = createContext(null);
@@ -18,6 +18,17 @@ export const ToastProvider = ({ children }) => {
       removeToast(id);
     }, 4500);
   }, [removeToast]);
+
+  // Listen for global toast events dispatched by axios interceptors (e.g. 403 Forbidden)
+  useEffect(() => {
+    const handleToastEvent = (e) => {
+      if (e.detail?.message) {
+        showToast(e.detail.message, e.detail.type || 'error');
+      }
+    };
+    window.addEventListener('app:toast', handleToastEvent);
+    return () => window.removeEventListener('app:toast', handleToastEvent);
+  }, [showToast]);
 
   return (
     <ToastContext.Provider value={{ showToast, removeToast }}>

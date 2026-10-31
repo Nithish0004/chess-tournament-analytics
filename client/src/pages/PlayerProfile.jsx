@@ -188,7 +188,7 @@ export const PlayerProfile = () => {
           </div>
         </div>
 
-        {isLoggedIn && (
+        {player.can_edit && (
           <button
             onClick={() => setIsEditModalOpen(true)}
             className="inline-flex items-center gap-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs sm:text-sm rounded-xl border border-slate-200 shadow-2xs transition-all self-start md:self-auto"

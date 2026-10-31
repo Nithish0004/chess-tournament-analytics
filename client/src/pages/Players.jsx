@@ -44,8 +44,7 @@ export const Players = () => {
     name: '',
     email: '',
     country: '',
-    date_of_birth: '',
-    current_rating: 1200
+    date_of_birth: ''
   });
 
   const [editForm, setEditForm] = useState({
@@ -55,8 +54,12 @@ export const Players = () => {
     date_of_birth: ''
   });
 
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, user } = useAuth();
   const { showToast } = useToast();
+
+  const canAddPlayer = Boolean(
+    user?.permissions?.can_create_player || ['ADMIN', 'ORGANIZER'].includes(user?.role)
+  );
 
   // Sync with searchParams if URL changes
   useEffect(() => {
@@ -139,13 +142,12 @@ export const Players = () => {
         name: addForm.name.trim(),
         email: addForm.email.trim(),
         country: addForm.country.trim() || null,
-        date_of_birth: addForm.date_of_birth || null,
-        current_rating: addForm.current_rating === '' ? 1200 : Number(addForm.current_rating)
+        date_of_birth: addForm.date_of_birth || null
       };
       await createPlayerApi(payload);
       showToast('Player registered successfully', 'success');
       setIsAddModalOpen(false);
-      setAddForm({ name: '', email: '', country: '', date_of_birth: '', current_rating: 1200 });
+      setAddForm({ name: '', email: '', country: '', date_of_birth: '' });
       fetchPlayers(debouncedQuery);
     } catch (err) {
       showToast(err.userMessage || 'Failed to add player', 'error');
@@ -199,7 +201,7 @@ export const Players = () => {
         title="Players"
         subtitle="Manage competitor roster, ratings, and match performance records"
         actions={
-          isLoggedIn && (
+          canAddPlayer && (
             <button
               onClick={() => setIsAddModalOpen(true)}
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all"
@@ -390,7 +392,7 @@ export const Players = () => {
                           <span>Profile</span>
                         </Link>
 
-                        {isLoggedIn && (
+                        {player.can_edit && (
                           <button
                             onClick={() => handleEditClick(player)}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-colors"
@@ -468,23 +470,6 @@ export const Players = () => {
                 className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
               />
             </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-              Starting Elo Rating (Optional)
-            </label>
-            <input
-              type="number"
-              min={100}
-              max={3500}
-              value={addForm.current_rating}
-              onChange={(e) => setAddForm({ ...addForm, current_rating: e.target.value })}
-              className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
-            />
-            <p className="text-[11px] text-slate-500 mt-1">
-              Defaults to 1200. Note: rating cannot be manually altered after registration.
-            </p>
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">

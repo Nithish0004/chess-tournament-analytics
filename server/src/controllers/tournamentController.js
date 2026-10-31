@@ -37,22 +37,36 @@ export const registerPlayerSchema = z.object({
   player_id: z.number().int().positive('player_id must be a positive integer')
 });
 
+export const computeCanManageTournament = (user, tournament) => {
+  if (!user) return false;
+  if (user.role === 'ADMIN') return true;
+  if (user.role === 'PLAYER') return false;
+  if (user.role === 'ORGANIZER') {
+    if (tournament.status === 'COMPLETED') return false;
+    return tournament.created_by != null && Number(tournament.created_by) === Number(user.user_id);
+  }
+  return false;
+};
+
 export const getTournaments = async (req, res, next) => {
   try {
     const [rows] = await pool.query(
       `SELECT t.tournament_id, t.name, t.format, t.start_date, t.end_date, t.status, t.created_by,
+              u.full_name AS owner_name,
               COUNT(DISTINCT r.player_id) AS player_count,
               COUNT(DISTINCT tr.round_id) AS rounds_count
        FROM tournament t
+       LEFT JOIN app_user u ON u.user_id = t.created_by
        LEFT JOIN registration r ON r.tournament_id = t.tournament_id
        LEFT JOIN tournament_round tr ON tr.tournament_id = t.tournament_id
-       GROUP BY t.tournament_id, t.name, t.format, t.start_date, t.end_date, t.status, t.created_by
+       GROUP BY t.tournament_id, t.name, t.format, t.start_date, t.end_date, t.status, t.created_by, u.full_name
        ORDER BY t.start_date DESC, t.tournament_id DESC`
     );
     const formatted = rows.map(r => ({
       ...r,
       player_count: Number(r.player_count),
-      rounds_count: Number(r.rounds_count)
+      rounds_count: Number(r.rounds_count),
+      can_manage: computeCanManageTournament(req.user, r)
     }));
     return res.json(formatted);
   } catch (err) {
@@ -66,13 +80,15 @@ export const getTournamentById = async (req, res, next) => {
   try {
     const [rows] = await pool.query(
       `SELECT t.tournament_id, t.name, t.format, t.start_date, t.end_date, t.status, t.created_by,
+              u.full_name AS owner_name,
               COUNT(DISTINCT r.player_id) AS player_count,
               COUNT(DISTINCT tr.round_id) AS rounds_count
        FROM tournament t
+       LEFT JOIN app_user u ON u.user_id = t.created_by
        LEFT JOIN registration r ON r.tournament_id = t.tournament_id
        LEFT JOIN tournament_round tr ON tr.tournament_id = t.tournament_id
        WHERE t.tournament_id = ?
-       GROUP BY t.tournament_id, t.name, t.format, t.start_date, t.end_date, t.status, t.created_by`,
+       GROUP BY t.tournament_id, t.name, t.format, t.start_date, t.end_date, t.status, t.created_by, u.full_name`,
       [id]
     );
 
@@ -83,7 +99,8 @@ export const getTournamentById = async (req, res, next) => {
     const item = {
       ...rows[0],
       player_count: Number(rows[0].player_count),
-      rounds_count: Number(rows[0].rounds_count)
+      rounds_count: Number(rows[0].rounds_count),
+      can_manage: computeCanManageTournament(req.user, rows[0])
     };
     return res.json(item);
   } catch (err) {
@@ -103,11 +120,20 @@ export const createTournament = async (req, res, next) => {
     );
 
     const [rows] = await pool.query(
-      'SELECT tournament_id, name, format, start_date, end_date, status, created_by FROM tournament WHERE tournament_id = ?',
+      `SELECT t.tournament_id, t.name, t.format, t.start_date, t.end_date, t.status, t.created_by,
+              u.full_name AS owner_name
+       FROM tournament t
+       LEFT JOIN app_user u ON u.user_id = t.created_by
+       WHERE t.tournament_id = ?`,
       [result.insertId]
     );
 
-    return res.status(201).json(rows[0]);
+    const item = {
+      ...rows[0],
+      can_manage: computeCanManageTournament(req.user, rows[0])
+    };
+
+    return res.status(201).json(item);
   } catch (err) {
     next(err);
   }
@@ -139,11 +165,20 @@ export const updateTournament = async (req, res, next) => {
     );
 
     const [rows] = await pool.query(
-      'SELECT tournament_id, name, format, start_date, end_date, status, created_by FROM tournament WHERE tournament_id = ?',
+      `SELECT t.tournament_id, t.name, t.format, t.start_date, t.end_date, t.status, t.created_by,
+              u.full_name AS owner_name
+       FROM tournament t
+       LEFT JOIN app_user u ON u.user_id = t.created_by
+       WHERE t.tournament_id = ?`,
       [id]
     );
 
-    return res.json(rows[0]);
+    const item = {
+      ...rows[0],
+      can_manage: computeCanManageTournament(req.user, rows[0])
+    };
+
+    return res.json(item);
   } catch (err) {
     next(err);
   }
@@ -182,6 +217,15 @@ export const registerPlayer = async (req, res, next) => {
 
 export const registerMe = async (req, res, next) => {
   const { id: tournamentId } = req.params;
+
+  if (req.user && req.user.role !== 'PLAYER') {
+    return res.status(403).json({
+      error: 'Forbidden: Only players can self-register',
+      message: 'Forbidden: Only players can self-register',
+      code: 'FORBIDDEN'
+    });
+  }
+
   const playerId = req.user.player_id;
 
   if (!playerId) {

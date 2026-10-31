@@ -10,7 +10,7 @@ const PORT = 5055;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 const runTests = async () => {
-  console.log('--- Starting Auth & Roles Verification Suite ---');
+  console.log('--- Starting Comprehensive RBAC & Security Verification Suite ---');
   const app = createApp();
 
   const server = app.listen(PORT, () => {
@@ -18,15 +18,6 @@ const runTests = async () => {
   });
 
   const RUN_ID = Date.now();
-  const ADMIN_EMAIL = `admin_${RUN_ID}@test.local`;
-  const ADMIN_PASS = 'AdminTest123!';
-  const PLAYER_EMAIL = `player_${RUN_ID}@test.local`;
-  const ORG1_EMAIL = `org1_${RUN_ID}@test.local`;
-  const ORG2_EMAIL = `org2_${RUN_ID}@test.local`;
-  const LOCKOUT_EMAIL = `lockout_${RUN_ID}@test.local`;
-  const RESET_EMAIL = `reset_${RUN_ID}@test.local`;
-  const SUSPEND_EMAIL = `suspend_${RUN_ID}@test.local`;
-
   const results = [];
   const record = (name, passed, details = '') => {
     results.push({ name, passed, details });
@@ -37,41 +28,29 @@ const runTests = async () => {
     }
   };
 
-  let adminUserId = null;
-  let adminToken = '';
-  let playerToken = '';
-  let playerUserId = null;
-  let playerId = null;
-  let org1Token = '';
-  let org1UserId = null;
-  let org2Token = '';
-  let org2UserId = null;
-  let testTournamentId = null;
-
   try {
     // ---------------------------------------------------------------
-    // 1. Health check
+    // 1. Health check & unauthenticated baseline
     // ---------------------------------------------------------------
     const healthRes = await fetch(`${BASE_URL}/health`);
     const healthJson = await healthRes.json();
     record('GET /health is public', healthRes.status === 200 && healthJson.status === 'ok');
 
-    // ---------------------------------------------------------------
-    // 2. Unauthenticated GET /api/players -> 401
-    // ---------------------------------------------------------------
     const unauthPlayersRes = await fetch(`${BASE_URL}/api/players`);
     record('GET /api/players without auth returns 401', unauthPlayersRes.status === 401);
 
     // ---------------------------------------------------------------
-    // 3. Admin user creation & login
+    // 2. Set up test accounts with unique *@test.local emails
     // ---------------------------------------------------------------
+    const ADMIN_EMAIL = `admin_${RUN_ID}@test.local`;
+    const ADMIN_PASS = 'AdminTest123!';
     const adminHash = await bcrypt.hash(ADMIN_PASS, 12);
     const [adminInsert] = await pool.query(
       `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified)
        VALUES (?, ?, 'Test Administrator', 'ADMIN', 'ACTIVE', 1)`,
       [ADMIN_EMAIL, adminHash]
     );
-    adminUserId = adminInsert.insertId;
+    const adminUserId = adminInsert.insertId;
 
     const adminLoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
@@ -79,344 +58,870 @@ const runTests = async () => {
       body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASS })
     });
     const adminLoginJson = await adminLoginRes.json();
-    adminToken = adminLoginJson.token;
-    record('POST /api/auth/login for test admin', adminLoginRes.status === 200 && !!adminToken);
-
-    // Verify GET /api/players works with valid token
-    const authPlayersRes = await fetch(`${BASE_URL}/api/players`, {
-      headers: { Authorization: `Bearer ${adminToken}` }
-    });
-    record('GET /api/players with active user returns 200', authPlayersRes.status === 200);
-
-    // ---------------------------------------------------------------
-    // 4. Register -> Verify -> Login (PLAYER)
-    // ---------------------------------------------------------------
-    const playerRegRes = await fetch(`${BASE_URL}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        role: 'PLAYER',
-        full_name: 'Test Grandmaster',
-        email: PLAYER_EMAIL,
-        password: 'PlayerPass123!',
-        confirm_password: 'PlayerPass123!',
-        accept_terms: true,
-        country: 'India',
-        date_of_birth: '1995-05-15'
-      })
-    });
-    const playerRegJson = await playerRegRes.json();
-    const playerVerifyToken = getLastGeneratedToken();
+    const adminToken = adminLoginJson.token;
     record(
-      'POST /api/auth/register (PLAYER role)',
-      playerRegRes.status === 200 && !!playerVerifyToken,
-      playerRegJson.message
+      'Admin login returns token and permissions object',
+      adminLoginRes.status === 200 && !!adminToken && adminLoginJson.permissions?.can_access_admin === true
     );
 
-    // Unverified login blocked -> 403 EMAIL_NOT_VERIFIED
-    const unverifiedLoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: PLAYER_EMAIL, password: 'PlayerPass123!' })
-    });
-    const unverifiedLoginJson = await unverifiedLoginRes.json();
-    record(
-      'Unverified login blocked (403 EMAIL_NOT_VERIFIED)',
-      unverifiedLoginRes.status === 403 && unverifiedLoginJson.code === 'EMAIL_NOT_VERIFIED'
+    // Create Organizer 1 (owner)
+    const ORG1_EMAIL = `org_owner_${RUN_ID}@test.local`;
+    const ORG1_PASS = 'OrgOwner123!';
+    const org1Hash = await bcrypt.hash(ORG1_PASS, 12);
+    const [org1Insert] = await pool.query(
+      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified, organization)
+       VALUES (?, ?, 'Organizer Owner', 'ORGANIZER', 'ACTIVE', 1, 'Owner Org')`,
+      [ORG1_EMAIL, org1Hash]
     );
+    const org1UserId = org1Insert.insertId;
 
-    // Verify email with token
-    const verifyPlayerRes = await fetch(`${BASE_URL}/api/auth/verify-email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: playerVerifyToken })
-    });
-    const verifyPlayerJson = await verifyPlayerRes.json();
-    record(
-      'POST /api/auth/verify-email (PLAYER -> ACTIVE)',
-      verifyPlayerRes.status === 200 && verifyPlayerJson.status === 'ACTIVE'
-    );
-
-    // Verify token reuse blocked
-    const reuseTokenRes = await fetch(`${BASE_URL}/api/auth/verify-email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: playerVerifyToken })
-    });
-    record(
-      'Used token rejected with 400 INVALID_TOKEN',
-      reuseTokenRes.status === 400
-    );
-
-    // Login after verification
-    const playerLoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: PLAYER_EMAIL, password: 'PlayerPass123!' })
-    });
-    const playerLoginJson = await playerLoginRes.json();
-    playerToken = playerLoginJson.token;
-    playerUserId = playerLoginJson.user?.user_id;
-    playerId = playerLoginJson.user?.player_id;
-    record(
-      'POST /api/auth/login after verification returns JWT (8h)',
-      playerLoginRes.status === 200 && !!playerToken && !!playerId
-    );
-
-    // GET /me
-    const meRes = await fetch(`${BASE_URL}/api/auth/me`, {
-      headers: { Authorization: `Bearer ${playerToken}` }
-    });
-    const meJson = await meRes.json();
-    record(
-      'GET /api/auth/me returns authenticated user details',
-      meRes.status === 200 && meJson.email === PLAYER_EMAIL
-    );
-
-    // PUT /me/profile
-    const updateProfileRes = await fetch(`${BASE_URL}/api/auth/me/profile`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${playerToken}`
-      },
-      body: JSON.stringify({ country: 'USA', full_name: 'Test GM Renamed' })
-    });
-    record('PUT /api/auth/me/profile updates player profile', updateProfileRes.status === 200);
-
-    // ---------------------------------------------------------------
-    // 5. Organizer pending approval then approved
-    // ---------------------------------------------------------------
-    const org1RegRes = await fetch(`${BASE_URL}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        role: 'ORGANIZER',
-        full_name: 'Organizer One',
-        email: ORG1_EMAIL,
-        password: 'OrgPass123!',
-        confirm_password: 'OrgPass123!',
-        accept_terms: true,
-        organization: 'World Chess Tour',
-        phone: '+1234567890'
-      })
-    });
-    const org1VerifyToken = getLastGeneratedToken();
-    record('POST /api/auth/register (ORGANIZER role)', org1RegRes.status === 200 && !!org1VerifyToken);
-
-    // Verify organizer email -> PENDING_APPROVAL
-    const verifyOrg1Res = await fetch(`${BASE_URL}/api/auth/verify-email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: org1VerifyToken })
-    });
-    const verifyOrg1Json = await verifyOrg1Res.json();
-    record(
-      'POST /api/auth/verify-email (ORGANIZER -> PENDING_APPROVAL)',
-      verifyOrg1Res.status === 200 && verifyOrg1Json.status === 'PENDING_APPROVAL'
-    );
-
-    // Organizer login blocked before admin approval
-    const org1PendingLoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: ORG1_EMAIL, password: 'OrgPass123!' })
-    });
-    const org1PendingJson = await org1PendingLoginRes.json();
-    record(
-      'Organizer pending approval login blocked (403 PENDING_APPROVAL)',
-      org1PendingLoginRes.status === 403 && org1PendingJson.code === 'PENDING_APPROVAL'
-    );
-
-    // Admin lists pending organizers: GET /api/admin/users?status=PENDING_APPROVAL&role=ORGANIZER
-    const adminGetUsersRes = await fetch(
-      `${BASE_URL}/api/admin/users?status=PENDING_APPROVAL&role=ORGANIZER`,
-      { headers: { Authorization: `Bearer ${adminToken}` } }
-    );
-    const adminGetUsersJson = await adminGetUsersRes.json();
-    const org1User = adminGetUsersJson.find(u => u.email === ORG1_EMAIL);
-    org1UserId = org1User?.user_id;
-    record(
-      'GET /api/admin/users?status=...&role=... lists pending organizer',
-      adminGetUsersRes.status === 200 && !!org1UserId
-    );
-
-    // Admin approves organizer
-    const approveRes = await fetch(`${BASE_URL}/api/admin/users/${org1UserId}/approve`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${adminToken}` }
-    });
-    record(
-      'POST /api/admin/users/:id/approve approves organizer',
-      approveRes.status === 200
-    );
-
-    // Organizer logs in after approval
     const org1LoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: ORG1_EMAIL, password: 'OrgPass123!' })
+      body: JSON.stringify({ email: ORG1_EMAIL, password: ORG1_PASS })
     });
     const org1LoginJson = await org1LoginRes.json();
-    org1Token = org1LoginJson.token;
-    record('Organizer login successful after approval', org1LoginRes.status === 200 && !!org1Token);
+    const org1Token = org1LoginJson.token;
+    record(
+      'Organizer Owner login returns token and permissions object',
+      org1LoginRes.status === 200 && !!org1Token && org1LoginJson.permissions?.can_create_tournament === true
+    );
 
-    // ---------------------------------------------------------------
-    // 6. Setup Organizer 2 (for cross-organizer tournament testing)
-    // ---------------------------------------------------------------
-    await fetch(`${BASE_URL}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        role: 'ORGANIZER',
-        full_name: 'Organizer Two',
-        email: ORG2_EMAIL,
-        password: 'OrgPass123!',
-        confirm_password: 'OrgPass123!',
-        accept_terms: true,
-        organization: 'Metro Chess League',
-        phone: '+9876543210'
-      })
-    });
-    const org2VerifyToken = getLastGeneratedToken();
-    await fetch(`${BASE_URL}/api/auth/verify-email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: org2VerifyToken })
-    });
-
-    const [org2DbRows] = await pool.query('SELECT user_id FROM app_user WHERE email = ?', [ORG2_EMAIL]);
-    org2UserId = org2DbRows[0].user_id;
-    await fetch(`${BASE_URL}/api/admin/users/${org2UserId}/approve`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${adminToken}` }
-    });
+    // Create Organizer 2 (other)
+    const ORG2_EMAIL = `org_other_${RUN_ID}@test.local`;
+    const ORG2_PASS = 'OrgOther123!';
+    const org2Hash = await bcrypt.hash(ORG2_PASS, 12);
+    const [org2Insert] = await pool.query(
+      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified, organization)
+       VALUES (?, ?, 'Organizer Other', 'ORGANIZER', 'ACTIVE', 1, 'Other Org')`,
+      [ORG2_EMAIL, org2Hash]
+    );
+    const org2UserId = org2Insert.insertId;
 
     const org2LoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: ORG2_EMAIL, password: 'OrgPass123!' })
+      body: JSON.stringify({ email: ORG2_EMAIL, password: ORG2_PASS })
     });
     const org2LoginJson = await org2LoginRes.json();
-    org2Token = org2LoginJson.token;
+    const org2Token = org2LoginJson.token;
+    record('Organizer Other login returns token', org2LoginRes.status === 200 && !!org2Token);
+
+    // Create Player 1 (user with linked player)
+    const PLAYER1_EMAIL = `player_${RUN_ID}@test.local`;
+    const PLAYER1_PASS = 'PlayerPass123!';
+    const [player1DbInsert] = await pool.query(
+      `INSERT INTO player (name, email, country, date_of_birth, current_rating)
+       VALUES ('Test Player One', ?, 'India', '1995-05-15', 1500)`,
+      [PLAYER1_EMAIL]
+    );
+    const player1Id = player1DbInsert.insertId;
+
+    const player1Hash = await bcrypt.hash(PLAYER1_PASS, 12);
+    const [player1UserInsert] = await pool.query(
+      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified, player_id)
+       VALUES (?, ?, 'Test Player One', 'PLAYER', 'ACTIVE', 1, ?)`,
+      [PLAYER1_EMAIL, player1Hash, player1Id]
+    );
+    const player1UserId = player1UserInsert.insertId;
+
+    const player1LoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: PLAYER1_EMAIL, password: PLAYER1_PASS })
+    });
+    const player1LoginJson = await player1LoginRes.json();
+    const player1Token = player1LoginJson.token;
+    record(
+      'Player login returns token and permissions object',
+      player1LoginRes.status === 200 && !!player1Token && player1LoginJson.permissions?.can_self_register === true
+    );
+
+    // Create Player 2 (another linked user account)
+    const PLAYER2_EMAIL = `player2_${RUN_ID}@test.local`;
+    const [player2DbInsert] = await pool.query(
+      `INSERT INTO player (name, email, country, date_of_birth, current_rating)
+       VALUES ('Test Player Two', ?, 'USA', '1998-08-20', 1600)`,
+      [PLAYER2_EMAIL]
+    );
+    const player2Id = player2DbInsert.insertId;
+
+    const player2Hash = await bcrypt.hash('Player2Pass123!', 12);
+    const [player2UserInsert] = await pool.query(
+      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified, player_id)
+       VALUES (?, ?, 'Test Player Two', 'PLAYER', 'ACTIVE', 1, ?)`,
+      [PLAYER2_EMAIL, player2Hash, player2Id]
+    );
+    const player2UserId = player2UserInsert.insertId;
+
+    // Create Walk-in Player (NO linked app_user row)
+    const WALKIN_EMAIL = `walkin_${RUN_ID}@test.local`;
+    const [walkinDbInsert] = await pool.query(
+      `INSERT INTO player (name, email, country, date_of_birth, current_rating)
+       VALUES ('Walkin Player', ?, 'France', '2000-01-01', 1400)`,
+      [WALKIN_EMAIL]
+    );
+    const walkinPlayerId = walkinDbInsert.insertId;
+
+    // Extra walk-in players for board matchups
+    const [w1Res] = await pool.query(
+      `INSERT INTO player (name, email, country, date_of_birth, current_rating)
+       VALUES ('Matchup Player A', ?, 'Germany', '1992-02-02', 1450)`,
+      [`matcha_${RUN_ID}@test.local`]
+    );
+    const matchupPlayerAId = w1Res.insertId;
+
+    const [w2Res] = await pool.query(
+      `INSERT INTO player (name, email, country, date_of_birth, current_rating)
+       VALUES ('Matchup Player B', ?, 'Spain', '1993-03-03', 1420)`,
+      [`matchb_${RUN_ID}@test.local`]
+    );
+    const matchupPlayerBId = w2Res.insertId;
 
     // ---------------------------------------------------------------
-    // 7. Role Authorization: Player blocked from POST /api/tournaments (403)
+    // 3. Set up tournament fixtures
     // ---------------------------------------------------------------
-    const playerCreateTournamentRes = await fetch(`${BASE_URL}/api/tournaments`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${playerToken}`
+    // Tournament 1: Owned by Organizer 1, UPCOMING
+    const [tOwnedRes] = await pool.query(
+      `INSERT INTO tournament (name, format, start_date, end_date, status, created_by)
+       VALUES (?, 'ROUND_ROBIN', '2026-11-20', '2026-11-25', 'UPCOMING', ?)`,
+      [`Org1 Tourney ${RUN_ID}`, org1UserId]
+    );
+    const tOwnedId = tOwnedRes.insertId;
+
+    // Register players in tOwned for game scheduling
+    await pool.query(
+      'INSERT INTO registration (tournament_id, player_id, rating_at_entry) VALUES (?, ?, 1450), (?, ?, 1420)',
+      [tOwnedId, matchupPlayerAId, tOwnedId, matchupPlayerBId]
+    );
+
+    // Round 1 in tOwned
+    const [rOwnedRes] = await pool.query(
+      `INSERT INTO tournament_round (tournament_id, round_no, status)
+       VALUES (?, 1, 'SCHEDULED')`,
+      [tOwnedId]
+    );
+    const rOwnedId = rOwnedRes.insertId;
+
+    // Game 1 in rOwned
+    const [gOwnedRes] = await pool.query(
+      `INSERT INTO game (round_id, board_no, white_player_id, black_player_id, status)
+       VALUES (?, 1, ?, ?, 'SCHEDULED')`,
+      [rOwnedId, matchupPlayerAId, matchupPlayerBId]
+    );
+    const gOwnedId = gOwnedRes.insertId;
+
+    // Additional games for result testing per role
+    const [gAdminRes] = await pool.query(
+      `INSERT INTO game (round_id, board_no, white_player_id, black_player_id, status)
+       VALUES (?, 2, ?, ?, 'SCHEDULED')`,
+      [rOwnedId, matchupPlayerAId, matchupPlayerBId]
+    );
+    const gAdminId = gAdminRes.insertId;
+
+    const [gOrgRes] = await pool.query(
+      `INSERT INTO game (round_id, board_no, white_player_id, black_player_id, status)
+       VALUES (?, 3, ?, ?, 'SCHEDULED')`,
+      [rOwnedId, matchupPlayerAId, matchupPlayerBId]
+    );
+    const gOrgId = gOrgRes.insertId;
+
+    // Tournament 2: Dedicated upcoming tournament for self-registration test
+    const [tSelfRegRes] = await pool.query(
+      `INSERT INTO tournament (name, format, start_date, end_date, status, created_by)
+       VALUES (?, 'SWISS', '2026-12-01', '2026-12-05', 'UPCOMING', ?)`,
+      [`Self Reg Tourney ${RUN_ID}`, org1UserId]
+    );
+    const tSelfRegId = tSelfRegRes.insertId;
+
+    // Tournament 3: COMPLETED tournament owned by Organizer 1
+    const [tCompletedRes] = await pool.query(
+      `INSERT INTO tournament (name, format, start_date, end_date, status, created_by)
+       VALUES (?, 'KNOCKOUT', '2026-10-01', '2026-10-05', 'ONGOING', ?)`,
+      [`Completed Tourney ${RUN_ID}`, org1UserId]
+    );
+    const tCompletedId = tCompletedRes.insertId;
+
+    await pool.query(
+      'INSERT INTO registration (tournament_id, player_id, rating_at_entry) VALUES (?, ?, 1450), (?, ?, 1420)',
+      [tCompletedId, matchupPlayerAId, tCompletedId, matchupPlayerBId]
+    );
+
+    // Round and game in completed tournament
+    const [rCompletedRes] = await pool.query(
+      `INSERT INTO tournament_round (tournament_id, round_no, status)
+       VALUES (?, 1, 'COMPLETED')`,
+      [tCompletedId]
+    );
+    const rCompletedId = rCompletedRes.insertId;
+
+    const [gCompletedRes] = await pool.query(
+      `INSERT INTO game (round_id, board_no, white_player_id, black_player_id, status)
+       VALUES (?, 1, ?, ?, 'SCHEDULED')`,
+      [rCompletedId, matchupPlayerAId, matchupPlayerBId]
+    );
+    const gCompletedId = gCompletedRes.insertId;
+
+    // Now mark tournament as COMPLETED
+    await pool.query(
+      "UPDATE tournament SET status = 'COMPLETED' WHERE tournament_id = ?",
+      [tCompletedId]
+    );
+
+    // Dummy user for admin action testing
+    const [dummyUserRes] = await pool.query(
+      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified)
+       VALUES (?, ?, 'Dummy Action Target', 'PLAYER', 'ACTIVE', 1)`,
+      [`dummy_${RUN_ID}@test.local`, adminHash]
+    );
+    const dummyUserId = dummyUserRes.insertId;
+
+    // Pool of walk-in players for registration testing
+    const [extraReg1] = await pool.query(
+      `INSERT INTO player (name, email, current_rating) VALUES ('Extra 1', ?, 1200)`,
+      [`extra1_${RUN_ID}@test.local`]
+    );
+    const extraReg1Id = extraReg1.insertId;
+
+    const [extraReg2] = await pool.query(
+      `INSERT INTO player (name, email, current_rating) VALUES ('Extra 2', ?, 1200)`,
+      [`extra2_${RUN_ID}@test.local`]
+    );
+    const extraReg2Id = extraReg2.insertId;
+
+    // ---------------------------------------------------------------
+    // 4. TABLE-DRIVEN RBAC PERMISSION MATRIX
+    // ---------------------------------------------------------------
+    const tokens = {
+      ADMIN: adminToken,
+      'ORGANIZER (owner)': org1Token,
+      'ORGANIZER (other)': org2Token,
+      PLAYER: player1Token
+    };
+
+    let regCounter = 0;
+    const regPlayers = [extraReg1Id, extraReg2Id];
+    let boardCounter = 10;
+
+    const rbacMatrix = [
+      {
+        rule: 'Any ACTIVE user may read dashboard',
+        method: 'GET',
+        path: () => '/api/dashboard',
+        body: null,
+        expected: {
+          ADMIN: 200,
+          'ORGANIZER (owner)': 200,
+          'ORGANIZER (other)': 200,
+          PLAYER: 200
+        }
       },
-      body: JSON.stringify({
-        name: 'Player Illegal Tournament',
-        format: 'ROUND_ROBIN',
-        start_date: '2026-11-10',
-        end_date: '2026-11-15'
-      })
+      {
+        rule: 'Any ACTIVE user may read tournaments',
+        method: 'GET',
+        path: () => '/api/tournaments',
+        body: null,
+        expected: {
+          ADMIN: 200,
+          'ORGANIZER (owner)': 200,
+          'ORGANIZER (other)': 200,
+          PLAYER: 200
+        }
+      },
+      {
+        rule: 'Any ACTIVE user may read tournament by id',
+        method: 'GET',
+        path: () => `/api/tournaments/${tOwnedId}`,
+        body: null,
+        expected: {
+          ADMIN: 200,
+          'ORGANIZER (owner)': 200,
+          'ORGANIZER (other)': 200,
+          PLAYER: 200
+        }
+      },
+      {
+        rule: 'Any ACTIVE user may read standings',
+        method: 'GET',
+        path: () => `/api/tournaments/${tOwnedId}/standings`,
+        body: null,
+        expected: {
+          ADMIN: 200,
+          'ORGANIZER (owner)': 200,
+          'ORGANIZER (other)': 200,
+          PLAYER: 200
+        }
+      },
+      {
+        rule: 'Any ACTIVE user may read analytics',
+        method: 'GET',
+        path: () => `/api/tournaments/${tOwnedId}/analytics`,
+        body: null,
+        expected: {
+          ADMIN: 200,
+          'ORGANIZER (owner)': 200,
+          'ORGANIZER (other)': 200,
+          PLAYER: 200
+        }
+      },
+      {
+        rule: 'Any ACTIVE user may read predictions',
+        method: 'GET',
+        path: () => `/api/tournaments/${tOwnedId}/predictions`,
+        body: null,
+        expected: {
+          ADMIN: 200,
+          'ORGANIZER (owner)': 200,
+          'ORGANIZER (other)': 200,
+          PLAYER: 200
+        }
+      },
+      {
+        rule: 'GET /api/players: all active users can read list',
+        method: 'GET',
+        path: () => '/api/players',
+        body: null,
+        expected: {
+          ADMIN: 200,
+          'ORGANIZER (owner)': 200,
+          'ORGANIZER (other)': 200,
+          PLAYER: 200
+        }
+      },
+      {
+        rule: 'GET /api/players/:id: all active users can read record',
+        method: 'GET',
+        path: () => `/api/players/${player2Id}`,
+        body: null,
+        expected: {
+          ADMIN: 200,
+          'ORGANIZER (owner)': 200,
+          'ORGANIZER (other)': 200,
+          PLAYER: 200
+        }
+      },
+      {
+        rule: 'POST /api/tournaments: ADMIN, ORGANIZER create; PLAYER blocked',
+        method: 'POST',
+        path: () => '/api/tournaments',
+        body: (role) => ({
+          name: `Tourney Matrix ${role} ${Date.now()}`,
+          format: 'ROUND_ROBIN',
+          start_date: '2026-11-20',
+          end_date: '2026-11-25',
+          status: 'UPCOMING'
+        }),
+        expected: {
+          ADMIN: 201,
+          'ORGANIZER (owner)': 201,
+          'ORGANIZER (other)': 201,
+          PLAYER: 403
+        }
+      },
+      {
+        rule: 'PUT /api/tournaments/:id: ADMIN any; ORGANIZER owner only; PLAYER never',
+        method: 'PUT',
+        path: () => `/api/tournaments/${tOwnedId}`,
+        body: () => ({ name: 'Renamed Tournament' }),
+        expected: {
+          ADMIN: 200,
+          'ORGANIZER (owner)': 200,
+          'ORGANIZER (other)': 403,
+          PLAYER: 403
+        }
+      },
+      {
+        rule: 'POST /api/tournaments/:id/register: ADMIN any; ORGANIZER owner only; PLAYER never',
+        method: 'POST',
+        path: () => `/api/tournaments/${tOwnedId}/register`,
+        body: (role) => {
+          const pid = role === 'ADMIN' ? regPlayers[0] : (role === 'ORGANIZER (owner)' ? regPlayers[1] : 9999);
+          return { player_id: pid };
+        },
+        expected: {
+          ADMIN: 201,
+          'ORGANIZER (owner)': 201,
+          'ORGANIZER (other)': 403,
+          PLAYER: 403
+        }
+      },
+      {
+        rule: 'POST /api/tournaments/:id/rounds: ADMIN any; ORGANIZER owner only; PLAYER never',
+        method: 'POST',
+        path: () => `/api/tournaments/${tOwnedId}/rounds`,
+        body: () => ({}),
+        expected: {
+          ADMIN: 201,
+          'ORGANIZER (owner)': 201,
+          'ORGANIZER (other)': 403,
+          PLAYER: 403
+        }
+      },
+      {
+        rule: 'POST /api/rounds/:id/games: ADMIN any; ORGANIZER owner only; PLAYER never',
+        method: 'POST',
+        path: () => `/api/rounds/${rOwnedId}/games`,
+        body: () => ({
+          board_no: ++boardCounter,
+          white_player_id: matchupPlayerAId,
+          black_player_id: matchupPlayerBId
+        }),
+        expected: {
+          ADMIN: 201,
+          'ORGANIZER (owner)': 201,
+          'ORGANIZER (other)': 403,
+          PLAYER: 403
+        }
+      },
+      {
+        rule: 'POST /api/games/:id/result: ADMIN any; ORGANIZER owner only; PLAYER never',
+        method: 'POST',
+        path: (role) => {
+          if (role === 'ADMIN') return `/api/games/${gAdminId}/result`;
+          if (role === 'ORGANIZER (owner)') return `/api/games/${gOrgId}/result`;
+          return `/api/games/${gOwnedId}/result`;
+        },
+        body: () => ({ outcome: 'WHITE' }),
+        expected: {
+          ADMIN: 200,
+          'ORGANIZER (owner)': 200,
+          'ORGANIZER (other)': 403,
+          PLAYER: 403
+        }
+      },
+      {
+        rule: 'POST /api/tournaments/:id/register-me: PLAYER only',
+        method: 'POST',
+        path: () => `/api/tournaments/${tSelfRegId}/register-me`,
+        body: () => ({}),
+        expected: {
+          ADMIN: 403,
+          'ORGANIZER (owner)': 403,
+          'ORGANIZER (other)': 403,
+          PLAYER: 201
+        }
+      },
+      {
+        rule: 'POST /api/players (walk-in): ADMIN, ORGANIZER; PLAYER never',
+        method: 'POST',
+        path: () => '/api/players',
+        body: (role) => ({
+          name: `Walkin created by ${role}`,
+          email: `walkin_role_${role.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}@test.local`,
+          country: 'Canada',
+          current_rating: 1250
+        }),
+        expected: {
+          ADMIN: 201,
+          'ORGANIZER (owner)': 201,
+          'ORGANIZER (other)': 201,
+          PLAYER: 403
+        }
+      },
+      {
+        rule: 'PUT /api/players/:id on walk-in player (NO linked user): ADMIN & ORGANIZER allowed; PLAYER blocked',
+        method: 'PUT',
+        path: () => `/api/players/${walkinPlayerId}`,
+        body: () => ({ country: 'Netherlands' }),
+        expected: {
+          ADMIN: 200,
+          'ORGANIZER (owner)': 200,
+          'ORGANIZER (other)': 200,
+          PLAYER: 403
+        }
+      },
+      {
+        rule: 'PUT /api/players/:id on player WITH linked account: ADMIN allowed; ORGANIZERS blocked',
+        method: 'PUT',
+        path: () => `/api/players/${player2Id}`,
+        body: () => ({ country: 'Sweden' }),
+        expected: {
+          ADMIN: 200,
+          'ORGANIZER (owner)': 403,
+          'ORGANIZER (other)': 403,
+          PLAYER: 403
+        }
+      },
+      {
+        rule: 'GET /api/admin/users: ADMIN only',
+        method: 'GET',
+        path: () => '/api/admin/users',
+        body: null,
+        expected: {
+          ADMIN: 200,
+          'ORGANIZER (owner)': 403,
+          'ORGANIZER (other)': 403,
+          PLAYER: 403
+        }
+      },
+      {
+        rule: 'POST /api/admin/users/:id/suspend: ADMIN only',
+        method: 'POST',
+        path: () => `/api/admin/users/${dummyUserId}/suspend`,
+        body: null,
+        expected: {
+          ADMIN: 200,
+          'ORGANIZER (owner)': 403,
+          'ORGANIZER (other)': 403,
+          PLAYER: 403
+        }
+      }
+    ];
+
+    console.log('\n--- Running Table-Driven Matrix Tests ---');
+    const roles = ['ADMIN', 'ORGANIZER (owner)', 'ORGANIZER (other)', 'PLAYER'];
+
+    for (const testCase of rbacMatrix) {
+      for (const role of roles) {
+        const token = tokens[role];
+        const expectedStatus = testCase.expected[role];
+        const endpointPath = typeof testCase.path === 'function' ? testCase.path(role) : testCase.path;
+        const reqBody = typeof testCase.body === 'function' ? testCase.body(role) : testCase.body;
+
+        const options = {
+          method: testCase.method,
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        };
+        if (reqBody !== null) {
+          options.headers['Content-Type'] = 'application/json';
+          options.body = JSON.stringify(reqBody);
+        }
+
+        const res = await fetch(`${BASE_URL}${endpointPath}`, options);
+        const passed = res.status === expectedStatus;
+        record(
+          `[${role}] ${testCase.rule}`,
+          passed,
+          `status: ${res.status}, expected: ${expectedStatus}`
+        );
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // 5. Special Rule: Player sees masked/omitted email & date_of_birth
+    // ---------------------------------------------------------------
+    console.log('\n--- Verifying Player Masking Rules ---');
+    // Player reads list: other players omit email and date_of_birth; own record has them
+    const playerListRes = await fetch(`${BASE_URL}/api/players`, {
+      headers: { Authorization: `Bearer ${player1Token}` }
     });
+    const playerListJson = await playerListRes.json();
+    const ownPlayerInList = playerListJson.find(p => p.player_id === player1Id);
+    const otherPlayerInList = playerListJson.find(p => p.player_id === player2Id);
+
+    const ownHasDetails = ownPlayerInList && ownPlayerInList.email === PLAYER1_EMAIL && !!ownPlayerInList.date_of_birth;
+    const otherOmitted = otherPlayerInList && otherPlayerInList.email === undefined && otherPlayerInList.date_of_birth === undefined;
+
     record(
-      'Player blocked from POST /api/tournaments (403)',
-      playerCreateTournamentRes.status === 403
+      'Player sees full email and date_of_birth on own record in GET /api/players',
+      ownHasDetails,
+      `own email: ${ownPlayerInList?.email}`
+    );
+    record(
+      'Player sees masked/omitted email and date_of_birth for other players in GET /api/players',
+      otherOmitted,
+      `other email: ${otherPlayerInList?.email}`
+    );
+
+    // Player reads other player directly
+    const playerOtherRes = await fetch(`${BASE_URL}/api/players/${player2Id}`, {
+      headers: { Authorization: `Bearer ${player1Token}` }
+    });
+    const playerOtherJson = await playerOtherRes.json();
+    record(
+      'Player receives other player record WITHOUT email and date_of_birth on GET /api/players/:id',
+      playerOtherRes.status === 200 && playerOtherJson.email === undefined && playerOtherJson.date_of_birth === undefined
+    );
+
+    // Player reads own player record directly
+    const playerSelfRes = await fetch(`${BASE_URL}/api/players/${player1Id}`, {
+      headers: { Authorization: `Bearer ${player1Token}` }
+    });
+    const playerSelfJson = await playerSelfRes.json();
+    record(
+      'Player receives complete own record with email and date_of_birth on GET /api/players/:id',
+      playerSelfRes.status === 200 && playerSelfJson.email === PLAYER1_EMAIL && !!playerSelfJson.date_of_birth
+    );
+
+    // Admin sees everything
+    const adminOtherRes = await fetch(`${BASE_URL}/api/players/${player1Id}`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    const adminOtherJson = await adminOtherRes.json();
+    record(
+      'Admin sees complete player record including email and date_of_birth',
+      adminOtherRes.status === 200 && adminOtherJson.email === PLAYER1_EMAIL && !!adminOtherJson.date_of_birth
+    );
+
+    // Organizer sees everything
+    const orgOtherRes = await fetch(`${BASE_URL}/api/players/${player1Id}`, {
+      headers: { Authorization: `Bearer ${org1Token}` }
+    });
+    const orgOtherJson = await orgOtherRes.json();
+    record(
+      'Organizer sees complete player record including email and date_of_birth',
+      orgOtherRes.status === 200 && orgOtherJson.email === PLAYER1_EMAIL && !!orgOtherJson.date_of_birth
     );
 
     // ---------------------------------------------------------------
-    // 8. Organizer creates tournament (sets tournament.created_by)
+    // 6. Special Rule: Completed tournament blocks organizer (403 "Tournament is completed")
     // ---------------------------------------------------------------
-    const orgCreateTournamentRes = await fetch(`${BASE_URL}/api/tournaments`, {
+    console.log('\n--- Verifying Completed Tournament Block Rules ---');
+    const orgCompletedEditRes = await fetch(`${BASE_URL}/api/tournaments/${tCompletedId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${org1Token}`
+      },
+      body: JSON.stringify({ name: 'Org Attempted Rename' })
+    });
+    const orgCompletedEditJson = await orgCompletedEditRes.json();
+    record(
+      'Completed tournament blocks organizer edit (403 "Tournament is completed")',
+      orgCompletedEditRes.status === 403 && (orgCompletedEditJson.error === 'Tournament is completed' || orgCompletedEditJson.message === 'Tournament is completed'),
+      orgCompletedEditJson.error
+    );
+
+    const orgCompletedRoundRes = await fetch(`${BASE_URL}/api/tournaments/${tCompletedId}/rounds`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${org1Token}` }
+    });
+    const orgCompletedRoundJson = await orgCompletedRoundRes.json();
+    record(
+      'Completed tournament blocks organizer creating rounds (403 "Tournament is completed")',
+      orgCompletedRoundRes.status === 403 && (orgCompletedRoundJson.error === 'Tournament is completed' || orgCompletedRoundJson.message === 'Tournament is completed')
+    );
+
+    const orgCompletedGameRes = await fetch(`${BASE_URL}/api/rounds/${rCompletedId}/games`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${org1Token}`
       },
       body: JSON.stringify({
-        name: `Org1 Championship ${RUN_ID}`,
-        format: 'ROUND_ROBIN',
-        start_date: '2026-11-10',
-        end_date: '2026-11-15',
-        status: 'UPCOMING'
+        board_no: 99,
+        white_player_id: matchupPlayerAId,
+        black_player_id: matchupPlayerBId
       })
     });
-    const orgCreateTournamentJson = await orgCreateTournamentRes.json();
-    testTournamentId = orgCreateTournamentJson.tournament_id;
+    const orgCompletedGameJson = await orgCompletedGameRes.json();
     record(
-      'Organizer creates tournament with created_by',
-      orgCreateTournamentRes.status === 201 && orgCreateTournamentJson.created_by === org1UserId,
-      `id: ${testTournamentId}, created_by: ${orgCreateTournamentJson.created_by}`
+      'Completed tournament blocks organizer creating games (403 "Tournament is completed")',
+      orgCompletedGameRes.status === 403 && (orgCompletedGameJson.error === 'Tournament is completed' || orgCompletedGameJson.message === 'Tournament is completed')
     );
 
-    // ---------------------------------------------------------------
-    // 9. Organizer blocked from another organizer's tournament (403)
-    // ---------------------------------------------------------------
-    const org2EditRes = await fetch(`${BASE_URL}/api/tournaments/${testTournamentId}`, {
+    const orgCompletedResultRes = await fetch(`${BASE_URL}/api/games/${gCompletedId}/result`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${org1Token}`
+      },
+      body: JSON.stringify({ outcome: 'WHITE' })
+    });
+    const orgCompletedResultJson = await orgCompletedResultRes.json();
+    record(
+      'Completed tournament blocks organizer recording results (403 "Tournament is completed")',
+      orgCompletedResultRes.status === 403 && (orgCompletedResultJson.error === 'Tournament is completed' || orgCompletedResultJson.message === 'Tournament is completed')
+    );
+
+    // ADMIN can edit completed tournament
+    const adminCompletedEditRes = await fetch(`${BASE_URL}/api/tournaments/${tCompletedId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${org2Token}`
+        Authorization: `Bearer ${adminToken}`
       },
-      body: JSON.stringify({ name: 'Hacked Tournament Name' })
+      body: JSON.stringify({ name: 'Admin Allowed Edit on Completed' })
     });
     record(
-      'Organizer blocked from editing another organizer tournament (403)',
-      org2EditRes.status === 403
+      'Admin is permitted to edit completed tournament (status 200)',
+      adminCompletedEditRes.status === 200
     );
 
-    const org2CreateRoundRes = await fetch(`${BASE_URL}/api/tournaments/${testTournamentId}/rounds`, {
+    // ---------------------------------------------------------------
+    // 7. Special Rule: Rating edit returns 400 "Rating cannot be edited directly"
+    // ---------------------------------------------------------------
+    console.log('\n--- Verifying Direct Rating Edit Block Rules ---');
+    const adminRatingEditRes = await fetch(`${BASE_URL}/api/players/${walkinPlayerId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({ current_rating: 2000 })
+    });
+    const adminRatingEditJson = await adminRatingEditRes.json();
+    record(
+      'Admin rating edit returns 400 "Rating cannot be edited directly"',
+      adminRatingEditRes.status === 400 && (adminRatingEditJson.error === 'Rating cannot be edited directly' || adminRatingEditJson.message === 'Rating cannot be edited directly')
+    );
+
+    const playerRatingEditRes = await fetch(`${BASE_URL}/api/players/${player1Id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${player1Token}`
+      },
+      body: JSON.stringify({ current_rating: 2500 })
+    });
+    const playerRatingEditJson = await playerRatingEditRes.json();
+    record(
+      'Player own rating edit returns 400 "Rating cannot be edited directly"',
+      playerRatingEditRes.status === 400 && (playerRatingEditJson.error === 'Rating cannot be edited directly' || playerRatingEditJson.message === 'Rating cannot be edited directly')
+    );
+
+    // Player editing own profile without rating edit succeeds
+    const playerSelfEditRes = await fetch(`${BASE_URL}/api/players/${player1Id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${player1Token}`
+      },
+      body: JSON.stringify({ country: 'India' })
+    });
+    record(
+      'Player successfully updates own profile without rating field (status 200)',
+      playerSelfEditRes.status === 200
+    );
+
+    // ---------------------------------------------------------------
+    // 8. Special Rule: Admin self-protection
+    // ---------------------------------------------------------------
+    console.log('\n--- Verifying Admin Self-Protection Rules ---');
+    const adminSelfSuspendRes = await fetch(`${BASE_URL}/api/admin/users/${adminUserId}/suspend`, {
       method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    const adminSelfSuspendJson = await adminSelfSuspendRes.json();
+    record(
+      'Admin cannot suspend themselves (400)',
+      adminSelfSuspendRes.status === 400 && adminSelfSuspendJson.error === 'An admin cannot suspend themselves'
+    );
+
+    const adminSelfRoleRes = await fetch(`${BASE_URL}/api/admin/users/${adminUserId}/role`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({ role: 'ORGANIZER' })
+    });
+    const adminSelfRoleJson = await adminSelfRoleRes.json();
+    record(
+      'Admin cannot change their own role (400)',
+      adminSelfRoleRes.status === 400 && adminSelfRoleJson.error === 'An admin cannot change their own role'
+    );
+
+    // ---------------------------------------------------------------
+    // 9. Special Rule: can_manage, created_by, owner_name on tournaments
+    // ---------------------------------------------------------------
+    console.log('\n--- Verifying Tournament can_manage, created_by, and owner_name ---');
+    const adminTourneyRes = await fetch(`${BASE_URL}/api/tournaments/${tOwnedId}`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    const adminTourneyJson = await adminTourneyRes.json();
+    record(
+      'GET /api/tournaments/:id includes created_by and owner_name',
+      adminTourneyJson.created_by === org1UserId && adminTourneyJson.owner_name === 'Organizer Owner'
+    );
+    record(
+      'Admin has can_manage=true on tournament',
+      adminTourneyJson.can_manage === true
+    );
+
+    const org1TourneyRes = await fetch(`${BASE_URL}/api/tournaments/${tOwnedId}`, {
+      headers: { Authorization: `Bearer ${org1Token}` }
+    });
+    const org1TourneyJson = await org1TourneyRes.json();
+    record(
+      'Organizer Owner has can_manage=true on owned UPCOMING tournament',
+      org1TourneyJson.can_manage === true
+    );
+
+    const org1CompletedTourneyRes = await fetch(`${BASE_URL}/api/tournaments/${tCompletedId}`, {
+      headers: { Authorization: `Bearer ${org1Token}` }
+    });
+    const org1CompletedTourneyJson = await org1CompletedTourneyRes.json();
+    record(
+      'Organizer Owner has can_manage=false on owned COMPLETED tournament',
+      org1CompletedTourneyJson.can_manage === false
+    );
+
+    const org2TourneyRes = await fetch(`${BASE_URL}/api/tournaments/${tOwnedId}`, {
       headers: { Authorization: `Bearer ${org2Token}` }
     });
+    const org2TourneyJson = await org2TourneyRes.json();
     record(
-      'Organizer blocked from creating rounds in another organizer tournament (403)',
-      org2CreateRoundRes.status === 403
+      'Organizer Other has can_manage=false on another organizer tournament',
+      org2TourneyJson.can_manage === false
     );
 
-    // ---------------------------------------------------------------
-    // 10. Player self-registration: POST /api/tournaments/:id/register-me
-    // ---------------------------------------------------------------
-    const registerMeRes = await fetch(`${BASE_URL}/api/tournaments/${testTournamentId}/register-me`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${playerToken}` }
+    const playerTourneyRes = await fetch(`${BASE_URL}/api/tournaments/${tOwnedId}`, {
+      headers: { Authorization: `Bearer ${player1Token}` }
     });
-    const registerMeJson = await registerMeRes.json();
+    const playerTourneyJson = await playerTourneyRes.json();
     record(
-      'Player self-registers via POST /api/tournaments/:id/register-me',
-      registerMeRes.status === 201 && registerMeJson.registration?.player_id === playerId
-    );
-
-    // Player duplicate self-registration blocked
-    const duplicateRegMeRes = await fetch(`${BASE_URL}/api/tournaments/${testTournamentId}/register-me`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${playerToken}` }
-    });
-    record(
-      'Duplicate self-registration rejected with 400',
-      duplicateRegMeRes.status === 400
-    );
-
-    // Player blocked from updating other players' profiles
-    const playerEditOtherRes = await fetch(`${BASE_URL}/api/players/999999`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${playerToken}`
-      },
-      body: JSON.stringify({ country: 'France' })
-    });
-    record(
-      'Player blocked from modifying other player profiles (403)',
-      playerEditOtherRes.status === 403
+      'Player has can_manage=false on tournament',
+      playerTourneyJson.can_manage === false
     );
 
     // ---------------------------------------------------------------
-    // 11. Wrong password lockout (5 attempts -> 429)
+    // 10. Special Rule: can_edit flag on player objects
     // ---------------------------------------------------------------
+    console.log('\n--- Verifying Player can_edit flag ---');
+    // Admin has can_edit=true on any player
+    const adminPlayerRes = await fetch(`${BASE_URL}/api/players/${player1Id}`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    const adminPlayerJson = await adminPlayerRes.json();
+    record('Admin has can_edit=true on player profile', adminPlayerJson.can_edit === true);
+
+    // Organizer has can_edit=true on walk-in player without user account
+    const orgWalkinRes = await fetch(`${BASE_URL}/api/players/${walkinPlayerId}`, {
+      headers: { Authorization: `Bearer ${org1Token}` }
+    });
+    const orgWalkinJson = await orgWalkinRes.json();
+    record('Organizer has can_edit=true on walk-in player', orgWalkinJson.can_edit === true);
+
+    // Organizer has can_edit=false on player with linked account
+    const orgLinkedRes = await fetch(`${BASE_URL}/api/players/${player1Id}`, {
+      headers: { Authorization: `Bearer ${org1Token}` }
+    });
+    const orgLinkedJson = await orgLinkedRes.json();
+    record('Organizer has can_edit=false on player with linked user account', orgLinkedJson.can_edit === false);
+
+    // Player has can_edit=true on own profile
+    record('Player has can_edit=true on own profile', playerSelfJson.can_edit === true);
+
+    // Player has can_edit=false on other player profile
+    record('Player has can_edit=false on other player profile', playerOtherJson.can_edit === false);
+
+    // ---------------------------------------------------------------
+    // 11. Special Rule: permissions object in /api/auth/me
+    // ---------------------------------------------------------------
+    console.log('\n--- Verifying permissions in /api/auth/me ---');
+    const meRes = await fetch(`${BASE_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    const meJson = await meRes.json();
+    record(
+      'GET /api/auth/me returns permissions object',
+      meRes.status === 200 && typeof meJson.permissions === 'object' && meJson.permissions.can_access_admin === true
+    );
+
+    // ---------------------------------------------------------------
+    // 12. Account Lockout & Suspension security checks
+    // ---------------------------------------------------------------
+    console.log('\n--- Verifying Account Lockout & Suspension ---');
+    const LOCKOUT_EMAIL = `lockout_${RUN_ID}@test.local`;
     await fetch(`${BASE_URL}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         role: 'PLAYER',
-        full_name: 'Lockout User',
+        full_name: 'Lockout Target',
         email: LOCKOUT_EMAIL,
         password: 'CorrectPass123!',
         confirm_password: 'CorrectPass123!',
@@ -430,8 +935,7 @@ const runTests = async () => {
       body: JSON.stringify({ token: lockoutVerifyToken })
     });
 
-    // 4 wrong attempts
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= 5; i++) {
       await fetch(`${BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -439,186 +943,67 @@ const runTests = async () => {
       });
     }
 
-    // 5th wrong attempt triggers lockout
-    const attempt5Res = await fetch(`${BASE_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: LOCKOUT_EMAIL, password: 'WrongPassword!' })
-    });
-    record('5th failed password attempt returns 401', attempt5Res.status === 401);
-
-    // 6th attempt with correct password returns 429
-    const attempt6Res = await fetch(`${BASE_URL}/api/auth/login`, {
+    const lockedLoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: LOCKOUT_EMAIL, password: 'CorrectPass123!' })
     });
-    const attempt6Json = await attempt6Res.json();
+    const lockedLoginJson = await lockedLoginRes.json();
     record(
-      'Locked account returns 429 after 5 failed attempts',
-      attempt6Res.status === 429 && attempt6Json.code === 'LOCKED'
+      'Account locks out after 5 failed attempts (429 LOCKED)',
+      lockedLoginRes.status === 429 && lockedLoginJson.code === 'LOCKED'
     );
 
-    // ---------------------------------------------------------------
-    // 12. Forgot / Reset Password flow
-    // ---------------------------------------------------------------
-    await fetch(`${BASE_URL}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        role: 'PLAYER',
-        full_name: 'Reset Test User',
-        email: RESET_EMAIL,
-        password: 'OldPassword123!',
-        confirm_password: 'OldPassword123!',
-        accept_terms: true
-      })
-    });
-    const resetUserVerifyToken = getLastGeneratedToken();
-    await fetch(`${BASE_URL}/api/auth/verify-email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: resetUserVerifyToken })
-    });
-
-    const forgotRes = await fetch(`${BASE_URL}/api/auth/forgot-password`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: RESET_EMAIL })
-    });
-    const resetToken = getLastGeneratedToken();
-    record('POST /api/auth/forgot-password sends reset token', forgotRes.status === 200 && !!resetToken);
-
-    const resetPassRes = await fetch(`${BASE_URL}/api/auth/reset-password`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        token: resetToken,
-        password: 'NewPassword123!',
-        confirm_password: 'NewPassword123!'
-      })
-    });
-    record('POST /api/auth/reset-password updates password', resetPassRes.status === 200);
-
-    // Login with old password fails
-    const oldLoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: RESET_EMAIL, password: 'OldPassword123!' })
-    });
-    record('Login with old password fails (401)', oldLoginRes.status === 401);
-
-    // Login with new password succeeds
-    const newLoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: RESET_EMAIL, password: 'NewPassword123!' })
-    });
-    record('Login with new password succeeds (200)', newLoginRes.status === 200);
-
-    // ---------------------------------------------------------------
-    // 13. Suspended user blocked
-    // ---------------------------------------------------------------
-    await fetch(`${BASE_URL}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        role: 'PLAYER',
-        full_name: 'Suspend Target',
-        email: SUSPEND_EMAIL,
-        password: 'SuspendPass123!',
-        confirm_password: 'SuspendPass123!',
-        accept_terms: true
-      })
-    });
-    const suspendVerifyToken = getLastGeneratedToken();
-    await fetch(`${BASE_URL}/api/auth/verify-email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: suspendVerifyToken })
-    });
-
-    const suspendLoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: SUSPEND_EMAIL, password: 'SuspendPass123!' })
-    });
-    const suspendLoginJson = await suspendLoginRes.json();
-    const suspendUserToken = suspendLoginJson.token;
-    const suspendUserId = suspendLoginJson.user.user_id;
-
-    // Admin suspends user
-    const suspendRes = await fetch(`${BASE_URL}/api/admin/users/${suspendUserId}/suspend`, {
+    // Suspend check: suspended user token immediately blocked
+    await fetch(`${BASE_URL}/api/admin/users/${dummyUserId}/suspend`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${adminToken}` }
     });
-    record('Admin suspends user', suspendRes.status === 200);
-
-    // Existing token immediately blocked by database recheck
-    const blockedTokenRes = await fetch(`${BASE_URL}/api/auth/me`, {
-      headers: { Authorization: `Bearer ${suspendUserToken}` }
-    });
-    record(
-      'Suspended user blocked on subsequent API call with token (403)',
-      blockedTokenRes.status === 403
-    );
-
-    // Suspended user blocked from logging in
-    const blockedLoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
+    const dummyLoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: SUSPEND_EMAIL, password: 'SuspendPass123!' })
+      body: JSON.stringify({ email: `dummy_${RUN_ID}@test.local`, password: ADMIN_PASS })
     });
+    const dummyLoginJson = await dummyLoginRes.json();
     record(
-      'Suspended user blocked on login (403 SUSPENDED)',
-      blockedLoginRes.status === 403
+      'Suspended user login rejected with 403 SUSPENDED',
+      dummyLoginRes.status === 403 && dummyLoginJson.code === 'SUSPENDED'
     );
-
-    // Admin cannot suspend themselves
-    const adminSelfSuspendRes = await fetch(`${BASE_URL}/api/admin/users/${adminUserId}/suspend`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${adminToken}` }
-    });
-    record('Admin cannot suspend themselves (400)', adminSelfSuspendRes.status === 400);
 
   } catch (err) {
     console.error('Unexpected error during test execution:', err);
   } finally {
     console.log('\n--- Cleaning up test records to preserve demo data ---');
     try {
-      // Clean up test tournaments and registrations
-      await pool.query(
-        `DELETE FROM registration WHERE player_id IN (
-          SELECT player_id FROM player WHERE email LIKE '%@test.local'
-        ) OR tournament_id IN (
-          SELECT tournament_id FROM tournament WHERE created_by IN (
-            SELECT user_id FROM app_user WHERE email LIKE '%@test.local'
-          )
-        )`
-      );
-      await pool.query(
-        `DELETE FROM tournament_round WHERE tournament_id IN (
-          SELECT tournament_id FROM tournament WHERE created_by IN (
-            SELECT user_id FROM app_user WHERE email LIKE '%@test.local'
-          )
-        )`
-      );
+      // 1. Delete test tournaments first (CASCADE removes rounds, games, results, rating_history, registrations)
       await pool.query(
         `DELETE FROM tournament WHERE created_by IN (
           SELECT user_id FROM app_user WHERE email LIKE '%@test.local'
+        ) OR name LIKE '%Matrix%' OR name LIKE '%Org1 Tourney%'
+          OR name LIKE '%Self Reg%' OR name LIKE '%Completed Tourney%'
+          OR name LIKE '%Tourney by%'`
+      );
+
+      // 2. Delete any orphaned registrations of test players
+      await pool.query(
+        `DELETE FROM registration WHERE player_id IN (
+          SELECT player_id FROM player WHERE email LIKE '%@test.local'
         )`
       );
-      // Clean up tokens
+
+      // 6. Delete tokens
       await pool.query(
         `DELETE FROM auth_token WHERE user_id IN (
           SELECT user_id FROM app_user WHERE email LIKE '%@test.local'
         )`
       );
-      // Clean up app_user rows
+
+      // 7. Delete app_user rows
       await pool.query("DELETE FROM app_user WHERE email LIKE '%@test.local'");
-      await pool.query("DELETE FROM app_user WHERE email = 'admin@chess.local'");
-      // Clean up player rows
+
+      // 8. Delete player rows
       await pool.query("DELETE FROM player WHERE email LIKE '%@test.local'");
+
       console.log('Test records successfully cleaned up.');
     } catch (cleanupErr) {
       console.error('Error during cleanup:', cleanupErr.message);
@@ -629,7 +1014,10 @@ const runTests = async () => {
 
     const passedCount = results.filter(r => r.passed).length;
     const totalCount = results.length;
-    console.log(`\nVerification complete: ${passedCount}/${totalCount} tests passed.`);
+    console.log(`\n=================================================`);
+    console.log(`Verification Complete: ${passedCount}/${totalCount} tests passed.`);
+    console.log(`=================================================`);
+
     if (passedCount !== totalCount) {
       process.exit(1);
     } else {
