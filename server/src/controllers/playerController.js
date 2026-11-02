@@ -1,25 +1,40 @@
 import { z } from 'zod';
 import { pool } from '../config/db.js';
+import { logAudit } from '../utils/auditLogger.js';
 
 export const createPlayerSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(100),
   email: z.string().trim().email('Invalid email address').max(120),
   country: z.string().trim().max(60).optional().nullable(),
   date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date_of_birth must be in YYYY-MM-DD format').optional().nullable(),
-  current_rating: z.number().int().min(100, 'Rating must be at least 100').max(3500, 'Rating cannot exceed 3500').optional().default(1200)
+  gender: z.enum(['MALE', 'FEMALE', 'OTHER', 'UNDISCLOSED']).optional().nullable(),
+  experience_level: z.enum(['BEGINNER', 'INTERMEDIATE', 'ADVANCED', 'EXPERT']).optional().nullable(),
+  club: z.string().trim().max(100).optional().nullable(),
+  fide_id: z.string().trim().max(12).optional().nullable(),
+  current_rating: z.number().int().min(100, 'Rating must be at least 100').max(3500, 'Rating cannot exceed 3500').optional()
 });
 
 export const updatePlayerSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
-  email: z.string().trim().email().max(120).optional(),
   country: z.string().trim().max(60).optional().nullable(),
-  date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date_of_birth must be in YYYY-MM-DD format').optional().nullable()
+  date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date_of_birth must be in YYYY-MM-DD format').optional().nullable(),
+  gender: z.enum(['MALE', 'FEMALE', 'OTHER', 'UNDISCLOSED']).optional().nullable(),
+  experience_level: z.enum(['BEGINNER', 'INTERMEDIATE', 'ADVANCED', 'EXPERT']).optional().nullable(),
+  club: z.string().trim().max(100).optional().nullable(),
+  fide_id: z.string().trim().max(12).optional().nullable()
 }).refine(data => Object.keys(data).length > 0, {
   message: 'At least one field must be provided for update'
 });
 
-export const checkNoDirectRatingEdit = (req, res, next) => {
+export const checkNoDirectRatingEdit = async (req, res, next) => {
   if (req.body && req.body.current_rating !== undefined) {
+    await logAudit({
+      actor_user_id: req.user?.user_id,
+      action: 'REJECT_RATING_EDIT',
+      entity: 'PLAYER',
+      entity_id: req.params?.id ? Number(req.params.id) : null,
+      details: { attempted_rating: req.body.current_rating }
+    });
     return res.status(400).json({
       error: 'Rating cannot be edited directly',
       message: 'Rating cannot be edited directly'
@@ -29,16 +44,24 @@ export const checkNoDirectRatingEdit = (req, res, next) => {
 };
 
 /**
- * Formats a player object according to user role and ownership rules:
- * - can_edit:
- *     - ADMIN: true
- *     - PLAYER: true if player_id matches their own player_id
- *     - ORGANIZER: true only if player has NO linked app_user
- * - email & date_of_birth:
- *     - ADMIN and ORGANIZER: see everything
- *     - PLAYER: see only their own email & date_of_birth; other players' are omitted
+ * Helper to fetch player IDs an organizer has access to via v_organizer_player_access
  */
-export const formatPlayerResponse = (user, playerRow) => {
+export const getOrganizerPlayerAccessSet = async (organizerUserId) => {
+  if (!organizerUserId) return new Set();
+  const [rows] = await pool.query(
+    'SELECT player_id FROM v_organizer_player_access WHERE organizer_user_id = ?',
+    [organizerUserId]
+  );
+  return new Set(rows.map(r => Number(r.player_id)));
+};
+
+/**
+ * Formats a player object according to user role and privacy rules:
+ * - ADMIN: sees all details (email, phone, date_of_birth)
+ * - PLAYER: sees only their own details; others have email, phone, date_of_birth omitted
+ * - ORGANIZER: sees email, phone, date_of_birth only if player is in v_organizer_player_access for that organizer
+ */
+export const formatPlayerResponse = (user, playerRow, allowedPlayerIdsSet = null) => {
   const hasLinkedUser = playerRow.linked_user_id != null;
   let canEdit = false;
 
@@ -57,6 +80,10 @@ export const formatPlayerResponse = (user, playerRow) => {
     name: playerRow.name,
     country: playerRow.country,
     current_rating: playerRow.current_rating,
+    gender: playerRow.gender,
+    experience_level: playerRow.experience_level,
+    club: playerRow.club,
+    fide_id: playerRow.fide_id,
     created_at: playerRow.created_at,
     can_edit: canEdit
   };
@@ -66,12 +93,25 @@ export const formatPlayerResponse = (user, playerRow) => {
   if (playerRow.draws !== undefined) result.draws = Number(playerRow.draws);
   if (playerRow.losses !== undefined) result.losses = Number(playerRow.losses);
 
-  const isSelf = user && user.role === 'PLAYER' && user.player_id != null && Number(user.player_id) === Number(playerRow.player_id);
-  const seesFullDetails = !user || user.role === 'ADMIN' || user.role === 'ORGANIZER' || isSelf;
+  let seesSensitive = false;
+  if (user) {
+    if (user.role === 'ADMIN') {
+      seesSensitive = true;
+    } else if (user.role === 'PLAYER') {
+      seesSensitive = user.player_id != null && Number(user.player_id) === Number(playerRow.player_id);
+    } else if (user.role === 'ORGANIZER') {
+      if (allowedPlayerIdsSet) {
+        seesSensitive = allowedPlayerIdsSet.has(Number(playerRow.player_id));
+      }
+    }
+  }
 
-  if (seesFullDetails) {
+  if (seesSensitive) {
     result.email = playerRow.email;
     result.date_of_birth = playerRow.date_of_birth;
+    if (playerRow.phone !== undefined) {
+      result.phone = playerRow.phone;
+    }
   }
 
   return result;
@@ -81,11 +121,17 @@ export const getPlayers = async (req, res, next) => {
   const { q } = req.query;
 
   try {
+    let allowedSet = null;
+    if (req.user && req.user.role === 'ORGANIZER') {
+      allowedSet = await getOrganizerPlayerAccessSet(req.user.user_id);
+    }
+
     if (q && typeof q === 'string' && q.trim().length > 0) {
       const searchTerm = `%${q.trim()}%`;
       const [rows] = await pool.query(
         `SELECT p.player_id, p.name, p.email, p.country, p.date_of_birth, p.current_rating, p.created_at,
-                u.user_id AS linked_user_id,
+                p.gender, p.experience_level, p.club, p.fide_id,
+                u.user_id AS linked_user_id, u.phone,
                 COALESCE(vp.games_played, 0) AS games_played,
                 COALESCE(vp.wins, 0) AS wins,
                 COALESCE(vp.draws, 0) AS draws,
@@ -97,12 +143,13 @@ export const getPlayers = async (req, res, next) => {
          ORDER BY p.current_rating DESC, p.player_id ASC`,
         [searchTerm]
       );
-      return res.json(rows.map(r => formatPlayerResponse(req.user, r)));
+      return res.json(rows.map(r => formatPlayerResponse(req.user, r, allowedSet)));
     }
 
     const [rows] = await pool.query(
       `SELECT p.player_id, p.name, p.email, p.country, p.date_of_birth, p.current_rating, p.created_at,
-              u.user_id AS linked_user_id,
+              p.gender, p.experience_level, p.club, p.fide_id,
+              u.user_id AS linked_user_id, u.phone,
               COALESCE(vp.games_played, 0) AS games_played,
               COALESCE(vp.wins, 0) AS wins,
               COALESCE(vp.draws, 0) AS draws,
@@ -112,7 +159,7 @@ export const getPlayers = async (req, res, next) => {
        LEFT JOIN v_player_performance vp ON vp.player_id = p.player_id
        ORDER BY p.player_id ASC`
     );
-    return res.json(rows.map(r => formatPlayerResponse(req.user, r)));
+    return res.json(rows.map(r => formatPlayerResponse(req.user, r, allowedSet)));
   } catch (err) {
     next(err);
   }
@@ -122,9 +169,15 @@ export const getPlayerById = async (req, res, next) => {
   const { id } = req.params;
 
   try {
+    let allowedSet = null;
+    if (req.user && req.user.role === 'ORGANIZER') {
+      allowedSet = await getOrganizerPlayerAccessSet(req.user.user_id);
+    }
+
     const [rows] = await pool.query(
       `SELECT p.player_id, p.name, p.email, p.country, p.date_of_birth, p.current_rating, p.created_at,
-              u.user_id AS linked_user_id
+              p.gender, p.experience_level, p.club, p.fide_id,
+              u.user_id AS linked_user_id, u.phone
        FROM player p
        LEFT JOIN app_user u ON u.player_id = p.player_id
        WHERE p.player_id = ?`,
@@ -135,32 +188,52 @@ export const getPlayerById = async (req, res, next) => {
       return res.status(404).json({ error: 'Player not found' });
     }
 
-    return res.json(formatPlayerResponse(req.user, rows[0]));
+    return res.json(formatPlayerResponse(req.user, rows[0], allowedSet));
   } catch (err) {
     next(err);
   }
 };
 
 export const createPlayer = async (req, res, next) => {
-  const { name, email, country = null, date_of_birth = null, current_rating = 1200 } = req.body;
+  const {
+    name,
+    email,
+    country = null,
+    date_of_birth = null,
+    gender = null,
+    experience_level = null,
+    club = null,
+    fide_id = null
+  } = req.body;
+
+  let current_rating = 1200;
+  if (req.user && req.user.role === 'ADMIN' && req.body.current_rating !== undefined) {
+    current_rating = req.body.current_rating;
+  }
 
   try {
     const [result] = await pool.query(
-      `INSERT INTO player (name, email, country, date_of_birth, current_rating)
-       VALUES (?, ?, ?, ?, ?)`,
-      [name, email, country, date_of_birth, current_rating]
+      `INSERT INTO player (name, email, country, date_of_birth, gender, experience_level, club, fide_id, current_rating)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, email, country, date_of_birth, gender, experience_level, club, fide_id, current_rating]
     );
 
     const [rows] = await pool.query(
       `SELECT p.player_id, p.name, p.email, p.country, p.date_of_birth, p.current_rating, p.created_at,
-              u.user_id AS linked_user_id
+              p.gender, p.experience_level, p.club, p.fide_id,
+              u.user_id AS linked_user_id, u.phone
        FROM player p
        LEFT JOIN app_user u ON u.player_id = p.player_id
        WHERE p.player_id = ?`,
       [result.insertId]
     );
 
-    return res.status(201).json(formatPlayerResponse(req.user, rows[0]));
+    let allowedSet = null;
+    if (req.user && req.user.role === 'ORGANIZER') {
+      allowedSet = await getOrganizerPlayerAccessSet(req.user.user_id);
+    }
+
+    return res.status(201).json(formatPlayerResponse(req.user, rows[0], allowedSet));
   } catch (err) {
     next(err);
   }
@@ -171,6 +244,13 @@ export const updatePlayer = async (req, res, next) => {
   const updates = req.body;
 
   if (updates && updates.current_rating !== undefined) {
+    await logAudit({
+      actor_user_id: req.user?.user_id,
+      action: 'REJECT_RATING_EDIT',
+      entity: 'PLAYER',
+      entity_id: Number(id),
+      details: { attempted_rating: updates.current_rating }
+    });
     return res.status(400).json({
       error: 'Rating cannot be edited directly',
       message: 'Rating cannot be edited directly'
@@ -187,6 +267,14 @@ export const updatePlayer = async (req, res, next) => {
   }
 
   if (req.user && req.user.role === 'ORGANIZER') {
+    if (req.user.approval_status !== 'APPROVED') {
+      return res.status(403).json({
+        code: 'NOT_APPROVED',
+        message: 'Your account is waiting for admin approval',
+        error: 'Your account is waiting for admin approval'
+      });
+    }
+
     const [userRows] = await pool.query('SELECT user_id FROM app_user WHERE player_id = ?', [id]);
     if (userRows.length > 0) {
       return res.status(403).json({
@@ -197,13 +285,12 @@ export const updatePlayer = async (req, res, next) => {
   }
 
   try {
-    // Verify player exists
     const [existing] = await pool.query('SELECT player_id FROM player WHERE player_id = ?', [id]);
     if (existing.length === 0) {
       return res.status(404).json({ error: 'Player not found' });
     }
 
-    const allowedColumns = ['name', 'email', 'country', 'date_of_birth'];
+    const allowedColumns = ['name', 'country', 'date_of_birth', 'gender', 'experience_level', 'club', 'fide_id'];
     const fields = [];
     const values = [];
 
@@ -214,22 +301,30 @@ export const updatePlayer = async (req, res, next) => {
       }
     }
 
-    values.push(id);
-    await pool.query(
-      `UPDATE player SET ${fields.join(', ')} WHERE player_id = ?`,
-      values
-    );
+    if (fields.length > 0) {
+      values.push(id);
+      await pool.query(
+        `UPDATE player SET ${fields.join(', ')} WHERE player_id = ?`,
+        values
+      );
+    }
 
     const [rows] = await pool.query(
       `SELECT p.player_id, p.name, p.email, p.country, p.date_of_birth, p.current_rating, p.created_at,
-              u.user_id AS linked_user_id
+              p.gender, p.experience_level, p.club, p.fide_id,
+              u.user_id AS linked_user_id, u.phone
        FROM player p
        LEFT JOIN app_user u ON u.player_id = p.player_id
        WHERE p.player_id = ?`,
       [id]
     );
 
-    return res.json(formatPlayerResponse(req.user, rows[0]));
+    let allowedSet = null;
+    if (req.user && req.user.role === 'ORGANIZER') {
+      allowedSet = await getOrganizerPlayerAccessSet(req.user.user_id);
+    }
+
+    return res.json(formatPlayerResponse(req.user, rows[0], allowedSet));
   } catch (err) {
     next(err);
   }
@@ -239,10 +334,15 @@ export const getPlayerAnalytics = async (req, res, next) => {
   const { id } = req.params;
 
   try {
-    // Verify player exists
+    let allowedSet = null;
+    if (req.user && req.user.role === 'ORGANIZER') {
+      allowedSet = await getOrganizerPlayerAccessSet(req.user.user_id);
+    }
+
     const [playerRows] = await pool.query(
       `SELECT p.player_id, p.name, p.email, p.country, p.date_of_birth, p.current_rating, p.created_at,
-              u.user_id AS linked_user_id
+              p.gender, p.experience_level, p.club, p.fide_id,
+              u.user_id AS linked_user_id, u.phone
        FROM player p
        LEFT JOIN app_user u ON u.player_id = p.player_id
        WHERE p.player_id = ?`,
@@ -255,19 +355,16 @@ export const getPlayerAnalytics = async (req, res, next) => {
 
     const player = playerRows[0];
 
-    // Row from v_player_performance
     const [perfRows] = await pool.query(
       'SELECT * FROM v_player_performance WHERE player_id = ?',
       [id]
     );
 
-    // Rows from v_rating_progression
     const [progressionRows] = await pool.query(
       'SELECT * FROM v_rating_progression WHERE player_id = ? ORDER BY game_no ASC',
       [id]
     );
 
-    // Tournament history: standings joined with tournament
     const [tournamentHistoryRows] = await pool.query(
       `SELECT s.tournament_id,
               t.name AS tournament_name,
@@ -288,7 +385,6 @@ export const getPlayerAnalytics = async (req, res, next) => {
       [id]
     );
 
-    // Opponent strength buckets: weaker (opp < my - 100), similar (within 100), stronger (opp > my + 100)
     const [bucketRows] = await pool.query(
       `SELECT
          CASE
@@ -335,7 +431,6 @@ export const getPlayerAnalytics = async (req, res, next) => {
       defaultBuckets.stronger
     ];
 
-    // Notable upset victories for this player from v_upsets
     const [upsetRows] = await pool.query(
       `SELECT u.tournament_id, u.game_id, u.winner, u.winner_rating, u.loser, u.loser_rating, u.rating_gap,
               t.name AS tournament_name
@@ -347,7 +442,7 @@ export const getPlayerAnalytics = async (req, res, next) => {
     );
 
     return res.json({
-      player: formatPlayerResponse(req.user, playerRows[0]),
+      player: formatPlayerResponse(req.user, playerRows[0], allowedSet),
       performance: perfRows[0] || null,
       rating_progression: progressionRows,
       tournament_history: tournamentHistoryRows,
@@ -369,5 +464,6 @@ export default {
   createPlayerSchema,
   updatePlayerSchema,
   checkNoDirectRatingEdit,
-  formatPlayerResponse
+  formatPlayerResponse,
+  getOrganizerPlayerAccessSet
 };

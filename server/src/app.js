@@ -10,6 +10,8 @@ import roundRoutes from './routes/roundRoutes.js';
 import gameRoutes from './routes/gameRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import { getMeDashboard } from './controllers/dashboardController.js';
+import { authMiddleware } from './middleware/authMiddleware.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 export const createApp = () => {
@@ -27,6 +29,9 @@ export const createApp = () => {
   app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
+
+  // Role-specific dashboard route: GET /api/me/dashboard
+  app.get('/api/me/dashboard', authMiddleware, getMeDashboard);
 
   // API Routes
   app.use('/api/auth', authRoutes);

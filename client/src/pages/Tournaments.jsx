@@ -12,7 +12,7 @@ import {
   RefreshCw,
   SlidersHorizontal
 } from 'lucide-react';
-import { getTournamentsApi, createTournamentApi, updateTournamentApi } from '../api';
+import { getTournamentsApi, createTournamentApi } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Badge } from '../components/Badge';
@@ -21,6 +21,8 @@ import { PageHeader } from '../components/PageHeader';
 import { Tabs } from '../components/Tabs';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
+import { TournamentStatusSteps } from '../components/TournamentStatusSteps';
+import { TournamentStatusButton } from '../components/TournamentStatusButton';
 
 export const Tournaments = ({ defaultOpenCreate = false }) => {
   const [searchParams] = useSearchParams();
@@ -33,17 +35,14 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Change Status Modal
-  const [statusModalOpen, setStatusModalOpen] = useState(false);
-  const [selectedTournament, setSelectedTournament] = useState(null);
-  const [newStatus, setNewStatus] = useState('UPCOMING');
-  const [updatingStatus, setUpdatingStatus] = useState(false);
-
   const [form, setForm] = useState({
     name: '',
     format: 'ROUND_ROBIN',
     start_date: '',
-    end_date: ''
+    end_date: '',
+    max_players: '',
+    registration_deadline: '',
+    rounds_planned: ''
   });
 
   const { isLoggedIn, user } = useAuth();
@@ -82,10 +81,31 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
       return;
     }
 
+    if (form.registration_deadline && form.start_date && form.registration_deadline > form.start_date) {
+      showToast('Registration deadline must be before or on the start date', 'error');
+      return;
+    }
+
+    if (form.max_players && Number(form.max_players) < 2) {
+      showToast('Max players must be at least 2', 'error');
+      return;
+    }
+
+    if (form.rounds_planned && Number(form.rounds_planned) < 1) {
+      showToast('Rounds planned must be at least 1', 'error');
+      return;
+    }
+
     setSaving(true);
     try {
       await createTournamentApi({
-        ...form,
+        name: form.name.trim(),
+        format: form.format,
+        start_date: form.start_date,
+        end_date: form.end_date,
+        max_players: form.max_players ? Number(form.max_players) : null,
+        registration_deadline: form.registration_deadline || null,
+        rounds_planned: form.rounds_planned ? Number(form.rounds_planned) : null,
         status: 'UPCOMING'
       });
       showToast('Tournament created successfully', 'success');
@@ -94,39 +114,16 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
         name: '',
         format: 'ROUND_ROBIN',
         start_date: '',
-        end_date: ''
+        end_date: '',
+        max_players: '',
+        registration_deadline: '',
+        rounds_planned: ''
       });
       fetchTournaments();
     } catch (err) {
       showToast(err.userMessage || 'Failed to create tournament', 'error');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const openChangeStatusModal = (t) => {
-    setSelectedTournament(t);
-    setNewStatus(t.status || 'UPCOMING');
-    setStatusModalOpen(true);
-  };
-
-  const handleStatusSubmit = async (e) => {
-    e.preventDefault();
-    if (!selectedTournament) return;
-
-    setUpdatingStatus(true);
-    try {
-      await updateTournamentApi(selectedTournament.tournament_id, {
-        status: newStatus
-      });
-      showToast(`Tournament status updated to ${newStatus}`, 'success');
-      setStatusModalOpen(false);
-      setSelectedTournament(null);
-      fetchTournaments();
-    } catch (err) {
-      showToast(err.userMessage || 'Failed to update tournament status', 'error');
-    } finally {
-      setUpdatingStatus(false);
     }
   };
 
@@ -216,9 +213,8 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
                 <th className="py-3.5 px-4 text-center w-12">#</th>
                 <th className="py-3.5 px-4">Name</th>
                 <th className="py-3.5 px-4">Format</th>
-                <th className="py-3.5 px-4">Start</th>
-                <th className="py-3.5 px-4">End</th>
-                <th className="py-3.5 px-4 text-center">Players</th>
+                <th className="py-3.5 px-4">Schedule</th>
+                <th className="py-3.5 px-4">Progress &amp; Stats</th>
                 <th className="py-3.5 px-4 text-center">Status</th>
                 <th className="py-3.5 px-4 text-right">Actions</th>
               </tr>
@@ -226,14 +222,14 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="py-14 text-center text-slate-400">
+                  <td colSpan={7} className="py-14 text-center text-slate-400">
                     <Loader2 className="w-7 h-7 animate-spin mx-auto text-blue-600 mb-2" />
                     <span className="text-xs font-semibold">Loading tournament fixtures...</span>
                   </td>
                 </tr>
               ) : filteredTournaments.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-8">
+                  <td colSpan={7} className="p-8">
                     <EmptyState
                       icon={Trophy}
                       title="No tournaments found"
@@ -248,86 +244,106 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
                   </td>
                 </tr>
               ) : (
-                filteredTournaments.map((t, idx) => (
-                  <tr
-                    key={t.tournament_id}
-                    className="hover:bg-slate-50/80 transition-colors"
-                  >
-                    <td className="py-3.5 px-4 text-center text-xs font-bold text-slate-400">
-                      {idx + 1}
-                    </td>
+                filteredTournaments.map((t, idx) => {
+                  const regCount = t.registered !== undefined ? t.registered : (t.player_count || 0);
+                  const roundsCount = t.rounds_created !== undefined ? t.rounds_created : (t.rounds_count || 0);
 
-                    <td className="py-3.5 px-4">
-                      <div className="min-w-[180px]">
+                  return (
+                    <tr
+                      key={t.tournament_id}
+                      className="hover:bg-slate-50/80 transition-colors"
+                    >
+                      <td className="py-3.5 px-4 text-center text-xs font-bold text-slate-400">
+                        {idx + 1}
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        <div className="min-w-[170px]">
+                          <Link
+                            to={`/tournaments/${t.tournament_id}`}
+                            className="font-bold text-slate-900 hover:text-blue-600 transition-colors block text-sm"
+                          >
+                            {t.name}
+                          </Link>
+                          <span className="text-[11px] text-slate-400 font-medium">
+                            ID: #{t.tournament_id}
+                          </span>
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                          {formatLabels[t.format] || t.format}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-xs font-medium text-slate-600">
+                        <div>
+                          {t.start_date ? t.start_date.substring(0, 10) : '—'} &rarr;{' '}
+                          {t.end_date ? t.end_date.substring(0, 10) : '—'}
+                        </div>
+                        {t.registration_deadline && (
+                          <div className="text-[10px] text-amber-700 font-semibold mt-0.5">
+                            Deadline: {t.registration_deadline.substring(0, 10)}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Progress Stats */}
+                      <td className="py-3.5 px-4">
+                        <div className="space-y-0.5 text-xs">
+                          <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                            <span className="text-blue-700 font-semibold">Registered:</span>
+                            <span>{regCount}{t.max_players ? ` / ${t.max_players}` : ''}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
+                            <span className="text-slate-500">Rounds:</span>
+                            <span>{roundsCount}{t.rounds_planned ? ` / ${t.rounds_planned}` : ''}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
+                            <span className="text-slate-500">Games:</span>
+                            <span>{t.games_finished || 0} / {t.games_total || 0}</span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Step Indicator */}
+                      <td className="py-3.5 px-4 text-center">
+                        <TournamentStatusSteps status={t.status} size="sm" />
+                      </td>
+
+                      {/* Actions: View and Single Status Action Button */}
+                      <td className="py-3.5 px-4 text-right space-x-2 whitespace-nowrap">
                         <Link
                           to={`/tournaments/${t.tournament_id}`}
-                          className="font-bold text-slate-900 hover:text-blue-600 transition-colors block text-sm"
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors"
                         >
-                          {t.name}
+                          <span>View</span>
+                          <ArrowRight className="w-3 h-3" />
                         </Link>
-                        <span className="text-[11px] text-slate-400 font-medium">
-                          ID: #{t.tournament_id}
-                        </span>
-                      </div>
-                    </td>
 
-                    <td className="py-3.5 px-4">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                        {formatLabels[t.format] || t.format}
-                      </span>
-                    </td>
-
-                    <td className="py-3.5 px-4 text-xs font-medium text-slate-600">
-                      {t.start_date ? t.start_date.substring(0, 10) : '—'}
-                    </td>
-
-                    <td className="py-3.5 px-4 text-xs font-medium text-slate-600">
-                      {t.end_date ? t.end_date.substring(0, 10) : '—'}
-                    </td>
-
-                    <td className="py-3.5 px-4 text-center">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 font-bold text-xs">
-                        <Users className="w-3.5 h-3.5" />
-                        <span>{t.player_count !== undefined ? t.player_count : 0}</span>
-                      </span>
-                    </td>
-
-                    <td className="py-3.5 px-4 text-center">
-                      <Badge variant={t.status}>{t.status}</Badge>
-                    </td>
-
-                    <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
-                      <Link
-                        to={`/tournaments/${t.tournament_id}`}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors"
-                      >
-                        <span>View</span>
-                        <ArrowRight className="w-3 h-3" />
-                      </Link>
-
-                      {t.can_manage && !(user?.role === 'ORGANIZER' && t.status === 'COMPLETED') ? (
-                        <button
-                          onClick={() => openChangeStatusModal(t)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-colors"
-                        >
-                          <RefreshCw className="w-3 h-3" />
-                          <span>Status</span>
-                        </button>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium bg-slate-100 text-slate-500 border border-slate-200">
-                          {t.owner_name ? `Owned by ${t.owner_name}` : 'View only'}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                        {t.can_manage ? (
+                          <TournamentStatusButton
+                            tournament={t}
+                            onSuccess={fetchTournaments}
+                            size="sm"
+                          />
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium bg-slate-100 text-slate-500 border border-slate-200">
+                            {t.owner_name ? `Owned by ${t.owner_name}` : 'View only'}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
       </Card>
 
-      {/* Create Tournament Modal (Mockup 5: name, format, start date, end date, Cancel/Create) */}
+      {/* Create Tournament Modal */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -390,6 +406,50 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
             </div>
           </div>
 
+          {/* New Optional Tournament Settings */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                Max Players
+              </label>
+              <input
+                type="number"
+                min="2"
+                value={form.max_players}
+                onChange={(e) => setForm({ ...form, max_players: e.target.value })}
+                placeholder="e.g. 16 (optional)"
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                Reg. Deadline
+              </label>
+              <input
+                type="date"
+                max={form.start_date || undefined}
+                value={form.registration_deadline}
+                onChange={(e) => setForm({ ...form, registration_deadline: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                Rounds Planned
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={form.rounds_planned}
+                onChange={(e) => setForm({ ...form, rounds_planned: e.target.value })}
+                placeholder="e.g. 7 (optional)"
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+              />
+            </div>
+          </div>
+
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
             <button
               type="button"
@@ -403,48 +463,7 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
               disabled={saving}
               className="px-5 py-2.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
             >
-              {saving ? 'Creating...' : 'Create'}
-            </button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Change Status Modal */}
-      <Modal
-        isOpen={statusModalOpen}
-        onClose={() => setStatusModalOpen(false)}
-        title={`Change Status: ${selectedTournament?.name}`}
-      >
-        <form onSubmit={handleStatusSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-              Select Status
-            </label>
-            <select
-              value={newStatus}
-              onChange={(e) => setNewStatus(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-            >
-              <option value="UPCOMING">Upcoming</option>
-              <option value="ONGOING">Ongoing</option>
-              <option value="COMPLETED">Completed</option>
-            </select>
-          </div>
-
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => setStatusModalOpen(false)}
-              className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={updatingStatus}
-              className="px-5 py-2.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
-            >
-              {updatingStatus ? 'Updating...' : 'Save Status'}
+              {saving ? 'Creating...' : 'Create Tournament'}
             </button>
           </div>
         </form>

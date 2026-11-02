@@ -24,8 +24,10 @@ export const errorHandler = (err, req, res, next) => {
   }
 
   if (errno === 1644 || err.sqlState === '45000') {
+    const errorMsg = err.sqlMessage || err.message;
     return res.status(400).json({
-      error: err.sqlMessage || err.message
+      error: errorMsg,
+      message: errorMsg
     });
   }
 

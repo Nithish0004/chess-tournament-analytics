@@ -11,12 +11,17 @@ export const ToastProvider = ({ children }) => {
   }, []);
 
   const showToast = useCallback((message, type = 'error') => {
-    const id = Date.now() + Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { id, message, type }]);
-
-    setTimeout(() => {
-      removeToast(id);
-    }, 4500);
+    if (!message) return;
+    setToasts((prev) => {
+      if (prev.some((t) => t.message === message && t.type === type)) {
+        return prev;
+      }
+      const id = Date.now() + Math.random().toString(36).substring(2, 9);
+      setTimeout(() => {
+        removeToast(id);
+      }, 4500);
+      return [...prev, { id, message, type }];
+    });
   }, [removeToast]);
 
   // Listen for global toast events dispatched by axios interceptors (e.g. 403 Forbidden)

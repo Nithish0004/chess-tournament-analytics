@@ -15,7 +15,8 @@ import {
 import {
   getAdminUsersApi,
   updateAdminUserRoleApi,
-  updateAdminUserStatusApi
+  updateAdminUserStatusApi,
+  approveAdminOrganizerApi
 } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -113,7 +114,8 @@ export const AdminUsers = () => {
     setUpdatingStatus(true);
     try {
       await updateAdminUserStatusApi(selectedUserForStatus.user_id, newStatus);
-      showToast(`Account status updated to ${newStatus} for @${selectedUserForStatus.username}`, 'success');
+      const name = selectedUserForStatus.full_name || selectedUserForStatus.email || selectedUserForStatus.username;
+      showToast(`Account status updated to ${newStatus} for ${name}`, 'success');
       setStatusModalOpen(false);
       setSelectedUserForStatus(null);
       fetchUsers();
@@ -127,8 +129,8 @@ export const AdminUsers = () => {
   // Quick approve organizer helper
   const handleQuickApproveOrganizer = async (u) => {
     try {
-      await updateAdminUserRoleApi(u.user_id, 'ORGANIZER');
-      showToast(`User @${u.username} approved as Organizer`, 'success');
+      await approveAdminOrganizerApi(u.user_id);
+      showToast(`User ${u.full_name || u.email} approved as Organizer`, 'success');
       fetchUsers();
     } catch (err) {
       showToast(err.userMessage || 'Failed to approve organizer', 'error');

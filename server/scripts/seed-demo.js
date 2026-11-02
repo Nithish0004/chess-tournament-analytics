@@ -49,25 +49,33 @@ const run = async () => {
     }
     console.log(`Inserted ${playerIds.length} players.`);
 
-    // Tournament 1: Tata Steel Masters 2026 (ONGOING - range includes 2026-10-29)
+    // Tournament 1: Tata Steel Masters 2026 (ONGOING)
     const [t1Res] = await conn.query(
       `INSERT INTO tournament (name, format, start_date, end_date, status)
-       VALUES (?, ?, ?, ?, ?)`,
-      ['Tata Steel Masters 2026', 'ROUND_ROBIN', '2026-10-15', '2026-11-05', 'ONGOING']
+       VALUES (?, ?, ?, ?, 'UPCOMING')`,
+      ['Tata Steel Masters 2026', 'ROUND_ROBIN', '2026-10-15', '2026-11-05']
     );
     const t1Id = t1Res.insertId;
 
     // Tournament 2: FIDE Candidates 2026 (UPCOMING - starts after 2026-11-15)
     const [t2Res] = await conn.query(
       `INSERT INTO tournament (name, format, start_date, end_date, status)
-       VALUES (?, ?, ?, ?, ?)`,
-      ['FIDE Candidates 2026', 'ROUND_ROBIN', '2026-11-20', '2026-12-10', 'UPCOMING']
+       VALUES (?, ?, ?, ?, 'UPCOMING')`,
+      ['FIDE Candidates 2026', 'ROUND_ROBIN', '2026-11-20', '2026-12-10']
     );
     const t2Id = t2Res.insertId;
 
-    console.log(`Created Tournaments: T1 (ID: ${t1Id}) and T2 (ID: ${t2Id}).`);
+    // Tournament 3: World Rapid Championship 2025 (COMPLETED)
+    const [t3Res] = await conn.query(
+      `INSERT INTO tournament (name, format, start_date, end_date, status)
+       VALUES (?, ?, ?, ?, 'UPCOMING')`,
+      ['World Rapid Championship 2025', 'ROUND_ROBIN', '2025-12-01', '2025-12-10']
+    );
+    const t3Id = t3Res.insertId;
 
-    // Register players 1-8 and player 16 (Asha, rating 2500 for upset potential) to Tournament 1
+    console.log(`Created Tournaments: T1 (ID: ${t1Id}), T2 (ID: ${t2Id}), T3 (ID: ${t3Id}) as UPCOMING.`);
+
+    // Register players 1-8 to Tournament 1
     const t1Players = [playerIds[0], playerIds[1], playerIds[2], playerIds[3], playerIds[4], playerIds[5], playerIds[6], playerIds[15]];
     for (const pid of t1Players) {
       await conn.query('INSERT INTO registration (tournament_id, player_id) VALUES (?, ?)', [t1Id, pid]);
@@ -80,6 +88,18 @@ const run = async () => {
       await conn.query('INSERT INTO registration (tournament_id, player_id) VALUES (?, ?)', [t2Id, pid]);
     }
     console.log(`Registered ${t2Players.length} players to Tournament ${t2Id}.`);
+
+    // Register players 1-4 to Tournament 3
+    const t3Players = [playerIds[0], playerIds[1], playerIds[2], playerIds[3]];
+    for (const pid of t3Players) {
+      await conn.query('INSERT INTO registration (tournament_id, player_id) VALUES (?, ?)', [t3Id, pid]);
+    }
+    console.log(`Registered ${t3Players.length} players to Tournament ${t3Id}.`);
+
+    // Start Tournaments 1 and 3 (move to ONGOING)
+    await conn.query("UPDATE tournament SET status = 'ONGOING' WHERE tournament_id = ?", [t1Id]);
+    await conn.query("UPDATE tournament SET status = 'ONGOING' WHERE tournament_id = ?", [t3Id]);
+    console.log(`Started Tournaments ${t1Id} and ${t3Id} (status ONGOING).`);
 
     // Create Round 1 in Tournament 1
     const [r1Res] = await conn.query(
@@ -95,18 +115,14 @@ const run = async () => {
     );
     const r2Id = r2Res.insertId;
 
-    // Create Round 1 in Tournament 2
-    const [t2r1Res] = await conn.query(
+    // Create Round 3 in Tournament 1 (scheduled / in-progress)
+    const [r3Res] = await conn.query(
       'INSERT INTO tournament_round (tournament_id, round_no, status) VALUES (?, ?, ?)',
-      [t2Id, 1, 'SCHEDULED']
+      [t1Id, 3, 'SCHEDULED']
     );
-    const t2r1Id = t2r1Res.insertId;
+    const r3Id = r3Res.insertId;
 
     // Insert Games for Round 1 of Tournament 1
-    // Board 1: Magnus (p0: 2832) vs Hikaru (p1: 2802)
-    // Board 2: Fabiano (p2: 2805) vs Gukesh (p3: 2794)
-    // Board 3: Arjun (p4: 2797) vs Nodirbek (p5: 2783)
-    // Board 4: Asha (p15: 2500) vs Alireza (p6: 2767) -> UPSET match! (gap > 200)
     const t1r1Games = [
       { board: 1, white: t1Players[0], black: t1Players[1], outcome: 'WHITE' },
       { board: 2, white: t1Players[2], black: t1Players[3], outcome: 'DRAW' },
@@ -140,25 +156,51 @@ const run = async () => {
       r2GameIds.push({ id: gRes.insertId, outcome: g.outcome });
     }
 
-    // Insert scheduled games for Tournament 2 Round 1 (unplayed)
-    for (let i = 0; i < 4; i++) {
+    // Insert Games for Round 3 of Tournament 1 (scheduled, unplayed)
+    const t1r3Games = [
+      { board: 1, white: t1Players[0], black: t1Players[2] },
+      { board: 2, white: t1Players[1], black: t1Players[3] },
+      { board: 3, white: t1Players[4], black: t1Players[6] },
+      { board: 4, white: t1Players[5], black: t1Players[7] }
+    ];
+    for (const g of t1r3Games) {
       await conn.query(
         'INSERT INTO game (round_id, board_no, white_player_id, black_player_id, status) VALUES (?, ?, ?, ?, ?)',
-        [t2r1Id, i + 1, t2Players[i * 2], t2Players[i * 2 + 1], 'SCHEDULED']
+        [r3Id, g.board, g.white, g.black, 'SCHEDULED']
       );
     }
 
-    // Record results strictly through CALL record_result(?, ?)
-    console.log('Recording game results via stored procedure CALL record_result(?, ?)...');
+    // Record results for Tournament 1 Rounds 1 & 2 via CALL record_result(?, ?)
+    console.log('Recording game results for T1 via stored procedure CALL record_result(?, ?)...');
     for (const g of r1GameIds) {
       await conn.query('CALL record_result(?, ?)', [g.id, g.outcome]);
-      console.log(`Recorded result for Game ${g.id}: ${g.outcome}`);
     }
-
     for (const g of r2GameIds) {
       await conn.query('CALL record_result(?, ?)', [g.id, g.outcome]);
-      console.log(`Recorded result for Game ${g.id}: ${g.outcome}`);
     }
+
+    // Create Round 1 in Tournament 3 (COMPLETED tournament flow)
+    const [t3r1Res] = await conn.query(
+      'INSERT INTO tournament_round (tournament_id, round_no, status) VALUES (?, ?, ?)',
+      [t3Id, 1, 'SCHEDULED']
+    );
+    const t3r1Id = t3r1Res.insertId;
+
+    const [t3g1] = await conn.query(
+      'INSERT INTO game (round_id, board_no, white_player_id, black_player_id, status) VALUES (?, ?, ?, ?, ?)',
+      [t3r1Id, 1, t3Players[0], t3Players[1], 'SCHEDULED']
+    );
+    const [t3g2] = await conn.query(
+      'INSERT INTO game (round_id, board_no, white_player_id, black_player_id, status) VALUES (?, ?, ?, ?, ?)',
+      [t3r1Id, 2, t3Players[2], t3Players[3], 'SCHEDULED']
+    );
+
+    await conn.query('CALL record_result(?, ?)', [t3g1.insertId, 'WHITE']);
+    await conn.query('CALL record_result(?, ?)', [t3g2.insertId, 'DRAW']);
+
+    // Complete Tournament 3 at the end
+    await conn.query("UPDATE tournament SET status = 'COMPLETED' WHERE tournament_id = ?", [t3Id]);
+    console.log(`Completed Tournament ${t3Id} (status COMPLETED).`);
 
     console.log('Demo seed completed successfully!');
     process.exit(0);

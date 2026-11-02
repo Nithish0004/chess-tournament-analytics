@@ -38,7 +38,7 @@ export const getDashboardData = async (req, res, next) => {
 
     // 3. Top 10 by rating joined with performance (wins, draws, losses, avg_opponent_rating)
     const [topPlayersRaw] = await pool.query(
-      `SELECT p.player_id, p.name, p.country, p.date_of_birth, p.current_rating, p.created_at,
+      `SELECT p.player_id, p.name, p.country, p.current_rating, p.created_at,
               COALESCE(vp.wins, 0) AS wins,
               COALESCE(vp.draws, 0) AS draws,
               COALESCE(vp.losses, 0) AS losses,
@@ -195,4 +195,215 @@ export const getDashboardData = async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+};
+
+export const getMeDashboard = async (req, res, next) => {
+  const user = req.user;
+
+  try {
+    if (user.role === 'PLAYER') {
+      const playerId = user.player_id;
+      let profile = null;
+      let currentRating = 1200;
+
+      if (playerId) {
+        const [pRows] = await pool.query(
+          `SELECT p.player_id, p.name, p.email, p.country, p.date_of_birth, p.gender,
+                  p.experience_level, p.club, p.fide_id, p.current_rating, p.created_at,
+                  u.phone
+           FROM player p
+           LEFT JOIN app_user u ON u.player_id = p.player_id
+           WHERE p.player_id = ?`,
+          [playerId]
+        );
+        if (pRows.length > 0) {
+          profile = pRows[0];
+          currentRating = profile.current_rating;
+        }
+      }
+
+      let ratingHistory = [];
+      if (playerId) {
+        const [rhRows] = await pool.query(
+          `SELECT rh.history_id, rh.player_id, rh.game_id, rh.old_rating, rh.new_rating,
+                  rh.rating_change, rh.recorded_at,
+                  g.round_id, tr.tournament_id, t.name AS tournament_name
+           FROM rating_history rh
+           JOIN game g ON g.game_id = rh.game_id
+           JOIN tournament_round tr ON tr.round_id = g.round_id
+           JOIN tournament t ON t.tournament_id = tr.tournament_id
+           WHERE rh.player_id = ?
+           ORDER BY rh.recorded_at DESC, rh.history_id DESC
+           LIMIT 10`,
+          [playerId]
+        );
+        ratingHistory = rhRows;
+      }
+
+      let performance = { games_played: 0, wins: 0, draws: 0, losses: 0, win_pct: 0, draw_pct: 0, loss_pct: 0, net_rating_change: 0 };
+      if (playerId) {
+        const [perfRows] = await pool.query(
+          'SELECT * FROM v_player_performance WHERE player_id = ?',
+          [playerId]
+        );
+        if (perfRows.length > 0) {
+          performance = perfRows[0];
+        }
+      }
+
+      let enrollments = [];
+      if (playerId) {
+        const [enrRows] = await pool.query(
+          'SELECT * FROM v_player_enrollments WHERE player_id = ? ORDER BY registered_at DESC',
+          [playerId]
+        );
+        enrollments = enrRows;
+      }
+
+      let openTournaments = [];
+      if (playerId) {
+        const [openRows] = await pool.query(
+          `SELECT * FROM v_open_tournaments
+           WHERE tournament_id NOT IN (
+             SELECT tournament_id FROM registration WHERE player_id = ?
+           )
+           ORDER BY start_date ASC`,
+          [playerId]
+        );
+        openTournaments = openRows;
+      } else {
+        const [openRows] = await pool.query('SELECT * FROM v_open_tournaments ORDER BY start_date ASC');
+        openTournaments = openRows;
+      }
+
+      let pendingGames = [];
+      if (playerId) {
+        const [pgRows] = await pool.query(
+          `SELECT pg.*, wp.name AS white_player_name, bp.name AS black_player_name
+           FROM v_pending_games pg
+           JOIN player wp ON wp.player_id = pg.white_player_id
+           JOIN player bp ON bp.player_id = pg.black_player_id
+           WHERE pg.white_player_id = ? OR pg.black_player_id = ?
+           ORDER BY pg.tournament_id ASC, pg.round_no ASC, pg.board_no ASC`,
+          [playerId, playerId]
+        );
+        pendingGames = pgRows;
+      }
+
+      return res.status(200).json({
+        role: 'PLAYER',
+        approval_status: user.approval_status,
+        profile,
+        current_rating: currentRating,
+        rating_history: ratingHistory,
+        wins: Number(performance.wins || 0),
+        draws: Number(performance.draws || 0),
+        losses: Number(performance.losses || 0),
+        win_rate: Number(performance.win_pct || 0),
+        win_pct: Number(performance.win_pct || 0),
+        performance,
+        enrollments,
+        open_tournaments: openTournaments,
+        pending_games: pendingGames
+      });
+    }
+
+    if (user.role === 'ORGANIZER') {
+      const [tournaments] = await pool.query(
+        `SELECT vp.*
+         FROM v_tournament_progress vp
+         JOIN tournament t ON t.tournament_id = vp.tournament_id
+         WHERE t.created_by = ?
+         ORDER BY vp.tournament_id DESC`,
+        [user.user_id]
+      );
+
+      const [playerCountRows] = await pool.query(
+        `SELECT COUNT(DISTINCT r.player_id) AS enrolled_players
+         FROM registration r
+         JOIN tournament t ON t.tournament_id = r.tournament_id
+         WHERE t.created_by = ?`,
+        [user.user_id]
+      );
+      const enrolledPlayers = Number(playerCountRows[0]?.enrolled_players || 0);
+
+      const [recentResults] = await pool.query(
+        `SELECT g.game_id, tr.tournament_id, t.name AS tournament_name, tr.round_no, g.board_no,
+                wp.player_id AS white_player_id, wp.name AS white_player_name,
+                bp.player_id AS black_player_id, bp.name AS black_player_name,
+                r.outcome, r.is_upset, r.recorded_at
+         FROM result r
+         JOIN game g ON g.game_id = r.game_id
+         JOIN tournament_round tr ON tr.round_id = g.round_id
+         JOIN tournament t ON t.tournament_id = tr.tournament_id
+         JOIN player wp ON wp.player_id = g.white_player_id
+         JOIN player bp ON bp.player_id = g.black_player_id
+         WHERE t.created_by = ?
+         ORDER BY r.recorded_at DESC
+         LIMIT 10`,
+        [user.user_id]
+      );
+
+      return res.status(200).json({
+        role: 'ORGANIZER',
+        approval_status: user.approval_status,
+        my_tournaments: tournaments,
+        tournaments,
+        enrolled_players: enrolledPlayers,
+        enrolled_players_count: enrolledPlayers,
+        recent_results: recentResults
+      });
+    }
+
+    if (user.role === 'ADMIN') {
+      const [userCounts] = await pool.query(
+        `SELECT role, approval_status, status, COUNT(*) AS count
+         FROM app_user
+         GROUP BY role, approval_status, status`
+      );
+
+      const [pendingApprovals] = await pool.query(
+        'SELECT * FROM v_pending_approvals ORDER BY created_at ASC LIMIT 10'
+      );
+
+      const [tournamentsByStatus] = await pool.query(
+        `SELECT status, COUNT(*) AS count
+         FROM tournament
+         GROUP BY status`
+      );
+
+      const [recentAuditLogs] = await pool.query(
+        `SELECT a.log_id, a.actor_user_id, a.action, a.entity, a.entity_id, a.details, a.created_at,
+                u.email AS actor_email, u.full_name AS actor_name
+         FROM audit_log a
+         LEFT JOIN app_user u ON u.user_id = a.actor_user_id
+         ORDER BY a.created_at DESC, a.log_id DESC
+         LIMIT 10`
+      );
+
+      const formattedLogs = recentAuditLogs.map(l => ({
+        ...l,
+        details: typeof l.details === 'string' ? JSON.parse(l.details) : l.details
+      }));
+
+      return res.status(200).json({
+        role: 'ADMIN',
+        approval_status: user.approval_status,
+        user_counts: userCounts,
+        pending_approvals: pendingApprovals,
+        tournaments_by_status: tournamentsByStatus,
+        recent_audit_logs: formattedLogs,
+        audit_logs: formattedLogs
+      });
+    }
+
+    return res.status(403).json({ error: 'Unknown role' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export default {
+  getDashboardData,
+  getMeDashboard
 };

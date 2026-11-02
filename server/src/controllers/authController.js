@@ -1,34 +1,85 @@
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
+import { OAuth2Client } from 'google-auth-library';
 import { pool } from '../config/db.js';
+import { env } from '../config/env.js';
 import { signToken } from '../utils/jwt.js';
 import { hashToken, createAuthToken } from '../utils/tokens.js';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../services/mailService.js';
 import { getPermissions } from '../middleware/authMiddleware.js';
 
 const BCRYPT_ROUNDS = 12;
+const googleClient = new OAuth2Client(env.GOOGLE_CLIENT_ID);
 
-// Validation Schemas
-export const registerSchema = z.object({
-  role: z.enum(['PLAYER', 'ORGANIZER'], {
-    errorMap: () => ({ message: 'Role must be either PLAYER or ORGANIZER' })
-  }),
+const passwordValidation = z.string()
+  .min(8, 'Password must be at least 8 characters')
+  .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+  .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+  .regex(/[0-9]/, 'Password must contain at least one digit');
+
+const dateOfBirthValidation = z.string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'date_of_birth must be in YYYY-MM-DD format')
+  .refine(val => {
+    const dob = new Date(val);
+    const now = new Date();
+    if (isNaN(dob.getTime())) return false;
+    if (dob >= now) return false;
+    const minAgeDate = new Date(now.getFullYear() - 5, now.getMonth(), now.getDate());
+    return dob <= minAgeDate;
+  }, {
+    message: 'date_of_birth must be in the past and age must be at least 5 years'
+  });
+
+export const registerPlayerObject = z.object({
+  role: z.literal('PLAYER'),
   full_name: z.string().trim().min(1, 'Full name is required').max(100),
   email: z.string().trim().email('Invalid email address').max(120),
-  password: z.string()
-    .min(8, 'Password must be at least 8 characters')
-    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
-    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
-    .regex(/[0-9]/, 'Password must contain at least one digit'),
+  password: passwordValidation,
   confirm_password: z.string().min(1, 'Please confirm your password'),
+  date_of_birth: dateOfBirthValidation,
+  gender: z.enum(['MALE', 'FEMALE', 'OTHER', 'UNDISCLOSED'], {
+    errorMap: () => ({ message: 'Gender must be MALE, FEMALE, OTHER, or UNDISCLOSED' })
+  }),
+  phone: z.string().trim().max(20).optional().nullable(),
+  country: z.string().trim().max(60).optional().nullable(),
+  experience_level: z.enum(['BEGINNER', 'INTERMEDIATE', 'ADVANCED', 'EXPERT'], {
+    errorMap: () => ({ message: 'Experience level must be BEGINNER, INTERMEDIATE, ADVANCED, or EXPERT' })
+  }),
+  club: z.string().trim().max(100).optional().nullable(),
+  fide_id: z.string().trim().max(12).optional().nullable(),
   accept_terms: z.literal(true, {
     errorMap: () => ({ message: 'You must accept the terms' })
-  }),
-  date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date_of_birth must be in YYYY-MM-DD format').optional().nullable(),
+  })
+});
+
+export const registerOrganizerObject = z.object({
+  role: z.literal('ORGANIZER'),
+  full_name: z.string().trim().min(1, 'Full name is required').max(100),
+  email: z.string().trim().email('Invalid email address').max(120),
+  password: passwordValidation,
+  confirm_password: z.string().min(1, 'Please confirm your password'),
+  phone: z.string().trim().min(1, 'Phone is required').max(20),
+  organization: z.string().trim().min(1, 'Organization is required').max(120),
   country: z.string().trim().max(60).optional().nullable(),
-  organization: z.string().trim().max(120).optional().nullable(),
-  phone: z.string().trim().max(20).optional().nullable()
-}).refine(data => data.password === data.confirm_password, {
+  accept_terms: z.literal(true, {
+    errorMap: () => ({ message: 'You must accept the terms' })
+  })
+});
+
+export const registerPlayerSchema = registerPlayerObject.refine(data => data.password === data.confirm_password, {
+  message: 'Passwords do not match',
+  path: ['confirm_password']
+});
+
+export const registerOrganizerSchema = registerOrganizerObject.refine(data => data.password === data.confirm_password, {
+  message: 'Passwords do not match',
+  path: ['confirm_password']
+});
+
+export const registerSchema = z.discriminatedUnion('role', [
+  registerPlayerObject,
+  registerOrganizerObject
+]).refine(data => data.password === data.confirm_password, {
   message: 'Passwords do not match',
   path: ['confirm_password']
 });
@@ -50,17 +101,18 @@ export const loginSchema = z.object({
   path: ['email']
 });
 
+export const googleAuthSchema = z.object({
+  id_token: z.string().min(1, 'id_token is required'),
+  role: z.enum(['PLAYER', 'ORGANIZER']).optional().default('PLAYER')
+});
+
 export const forgotPasswordSchema = z.object({
   email: z.string().trim().email('Invalid email address')
 });
 
 export const resetPasswordSchema = z.object({
   token: z.string().min(1, 'Token is required'),
-  password: z.string()
-    .min(8, 'Password must be at least 8 characters')
-    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
-    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
-    .regex(/[0-9]/, 'Password must contain at least one digit'),
+  password: passwordValidation,
   confirm_password: z.string().min(1, 'Please confirm your password')
 }).refine(data => data.password === data.confirm_password, {
   message: 'Passwords do not match',
@@ -70,9 +122,13 @@ export const resetPasswordSchema = z.object({
 export const updateProfileSchema = z.object({
   full_name: z.string().trim().min(1).max(100).optional(),
   phone: z.string().trim().max(20).optional().nullable(),
+  organization: z.string().trim().max(120).optional().nullable(),
   country: z.string().trim().max(60).optional().nullable(),
-  date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
-  organization: z.string().trim().max(120).optional().nullable()
+  date_of_birth: dateOfBirthValidation.optional().nullable(),
+  gender: z.enum(['MALE', 'FEMALE', 'OTHER', 'UNDISCLOSED']).optional().nullable(),
+  experience_level: z.enum(['BEGINNER', 'INTERMEDIATE', 'ADVANCED', 'EXPERT']).optional().nullable(),
+  club: z.string().trim().max(100).optional().nullable(),
+  fide_id: z.string().trim().max(12).optional().nullable()
 }).refine(data => Object.keys(data).length > 0, {
   message: 'At least one field must be provided for profile update'
 });
@@ -97,7 +153,11 @@ export const register = async (req, res, next) => {
     date_of_birth,
     country,
     organization,
-    phone
+    phone,
+    gender,
+    experience_level,
+    club,
+    fide_id
   } = req.body;
 
   const email = rawEmail.trim().toLowerCase();
@@ -152,22 +212,22 @@ export const register = async (req, res, next) => {
         );
         if (linkedUsers.length === 0) {
           playerId = foundPlayerId;
-          // Optionally update player fields if provided
-          if (country || date_of_birth) {
-            await conn.query(
-              'UPDATE player SET country = COALESCE(?, country), date_of_birth = COALESCE(?, date_of_birth) WHERE player_id = ?',
-              [country || null, date_of_birth || null, playerId]
-            );
-          }
+          await conn.query(
+            `UPDATE player
+             SET name = ?, country = COALESCE(?, country), date_of_birth = ?,
+                 gender = ?, experience_level = ?, club = COALESCE(?, club), fide_id = COALESCE(?, fide_id)
+             WHERE player_id = ?`,
+            [full_name, country || null, date_of_birth, gender, experience_level, club || null, fide_id || null, playerId]
+          );
         }
       }
 
       if (!playerId) {
         // Create player row with default rating 1200
         const [playerInsert] = await conn.query(
-          `INSERT INTO player (name, email, country, date_of_birth, current_rating)
-           VALUES (?, ?, ?, ?, 1200)`,
-          [full_name, email, country || null, date_of_birth || null]
+          `INSERT INTO player (name, email, country, date_of_birth, gender, experience_level, club, fide_id, current_rating)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1200)`,
+          [full_name, email, country || null, date_of_birth, gender, experience_level, club || null, fide_id || null]
         );
         playerId = playerInsert.insertId;
       }
@@ -175,14 +235,14 @@ export const register = async (req, res, next) => {
 
     // Insert into app_user
     const [userInsert] = await conn.query(
-      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified, phone, organization, player_id)
-       VALUES (?, ?, ?, ?, 'PENDING_EMAIL', 0, ?, ?, ?)`,
+      `INSERT INTO app_user (email, password_hash, full_name, role, status, approval_status, email_verified, phone, organization, player_id)
+       VALUES (?, ?, ?, ?, 'PENDING_EMAIL', 'PENDING', 0, ?, ?, ?)`,
       [
         email,
         passwordHash,
         full_name,
         role,
-        role === 'ORGANIZER' ? (phone || null) : null,
+        phone || null,
         role === 'ORGANIZER' ? (organization || null) : null,
         playerId
       ]
@@ -221,7 +281,7 @@ export const verifyEmail = async (req, res, next) => {
 
     const [rows] = await conn.query(
       `SELECT t.token_id, t.user_id, t.expires_at, t.used_at,
-              u.role, u.status, u.email_verified
+              u.role, u.status, u.approval_status, u.email_verified
        FROM auth_token t
        JOIN app_user u ON u.user_id = t.user_id
        WHERE t.token_hash = ? AND t.purpose = 'VERIFY_EMAIL'`,
@@ -248,18 +308,17 @@ export const verifyEmail = async (req, res, next) => {
     // Mark token used
     await conn.query('UPDATE auth_token SET used_at = NOW() WHERE token_id = ?', [tokenRow.token_id]);
 
-    // Role-dependent status: ACTIVE for PLAYER, PENDING_APPROVAL for ORGANIZER
-    const newStatus = tokenRow.role === 'ORGANIZER' ? 'PENDING_APPROVAL' : 'ACTIVE';
+    // Email verification -> status ACTIVE; approval_status stays PENDING for PLAYER and ORGANIZER
     await conn.query(
-      'UPDATE app_user SET email_verified = 1, status = ? WHERE user_id = ?',
-      [newStatus, tokenRow.user_id]
+      "UPDATE app_user SET email_verified = 1, status = 'ACTIVE' WHERE user_id = ?",
+      [tokenRow.user_id]
     );
 
     await conn.commit();
 
     return res.status(200).json({
       message: 'Email verified successfully',
-      status: newStatus
+      status: 'ACTIVE'
     });
   } catch (err) {
     await conn.rollback();
@@ -326,6 +385,7 @@ export const login = async (req, res, next) => {
   try {
     const [rows] = await pool.query(
       `SELECT user_id, email, password_hash, full_name, role, status,
+              approval_status, approval_note,
               email_verified, phone, organization, player_id,
               failed_logins, locked_until, created_at, last_login_at
        FROM app_user WHERE email = ?`,
@@ -377,13 +437,6 @@ export const login = async (req, res, next) => {
       });
     }
 
-    if (user.status === 'PENDING_APPROVAL') {
-      return res.status(403).json({
-        error: 'Account is pending organizer approval',
-        code: 'PENDING_APPROVAL'
-      });
-    }
-
     if (user.status === 'SUSPENDED') {
       return res.status(403).json({
         error: 'Account has been suspended',
@@ -403,7 +456,7 @@ export const login = async (req, res, next) => {
       player_id: user.player_id
     });
 
-    const permissions = getPermissions(user.role);
+    const permissions = getPermissions(user.role, user.approval_status);
 
     const userResponse = {
       user_id: user.user_id,
@@ -411,6 +464,8 @@ export const login = async (req, res, next) => {
       full_name: user.full_name,
       role: user.role,
       status: user.status,
+      approval_status: user.approval_status,
+      approval_note: user.approval_note,
       email_verified: user.email_verified,
       phone: user.phone,
       organization: user.organization,
@@ -424,7 +479,9 @@ export const login = async (req, res, next) => {
       message: 'Login successful',
       token,
       user: userResponse,
-      permissions
+      permissions,
+      approval_status: user.approval_status,
+      approval_note: user.approval_note
     });
   } catch (err) {
     next(err);
@@ -540,7 +597,7 @@ export const resetPassword = async (req, res, next) => {
 export const getMe = async (req, res, next) => {
   try {
     const [rows] = await pool.query(
-      `SELECT user_id, email, full_name, role, status, email_verified,
+      `SELECT user_id, email, full_name, role, status, approval_status, approval_note, email_verified,
               phone, organization, player_id, created_at, last_login_at
        FROM app_user WHERE user_id = ?`,
       [req.user.user_id]
@@ -551,11 +608,11 @@ export const getMe = async (req, res, next) => {
     }
 
     const user = rows[0];
-    user.permissions = getPermissions(user.role);
+    user.permissions = getPermissions(user.role, user.approval_status);
 
     if (user.player_id) {
       const [playerRows] = await pool.query(
-        'SELECT player_id, name, country, date_of_birth, current_rating FROM player WHERE player_id = ?',
+        'SELECT player_id, name, email, country, date_of_birth, gender, experience_level, club, fide_id, current_rating FROM player WHERE player_id = ?',
         [user.player_id]
       );
       if (playerRows.length > 0) {
@@ -569,8 +626,180 @@ export const getMe = async (req, res, next) => {
   }
 };
 
+export const googleLogin = async (req, res, next) => {
+  const { id_token, role: requestedRole = 'PLAYER' } = req.body;
+
+  if (!id_token) {
+    return res.status(400).json({ error: 'id_token is required', message: 'id_token is required' });
+  }
+
+  let payload;
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: id_token,
+      audience: env.GOOGLE_CLIENT_ID || undefined
+    });
+    payload = ticket.getPayload();
+  } catch (err) {
+    return res.status(400).json({
+      error: 'Invalid Google token',
+      message: 'Invalid Google token',
+      details: err.message
+    });
+  }
+
+  if (!payload || !payload.email_verified) {
+    return res.status(400).json({
+      error: 'Google email is not verified',
+      message: 'Google email is not verified'
+    });
+  }
+
+  const googleSub = payload.sub;
+  const email = (payload.email || '').trim().toLowerCase();
+  const fullName = payload.name || email.split('@')[0] || 'Google User';
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    let [users] = await conn.query(
+      `SELECT user_id, email, full_name, role, status, approval_status, approval_note,
+              email_verified, phone, organization, player_id, google_sub
+       FROM app_user WHERE google_sub = ?`,
+      [googleSub]
+    );
+
+    let user = users[0];
+
+    if (!user) {
+      // Check if user exists with this email
+      const [emailUsers] = await conn.query(
+        `SELECT user_id, email, full_name, role, status, approval_status, approval_note,
+                email_verified, phone, organization, player_id, google_sub
+         FROM app_user WHERE email = ?`,
+        [email]
+      );
+
+      if (emailUsers.length > 0) {
+        user = emailUsers[0];
+        await conn.query(
+          'UPDATE app_user SET google_sub = ?, email_verified = 1 WHERE user_id = ?',
+          [googleSub, user.user_id]
+        );
+        user.google_sub = googleSub;
+        user.email_verified = 1;
+      } else {
+        // Create new account
+        const role = requestedRole === 'ORGANIZER' ? 'ORGANIZER' : 'PLAYER';
+        let playerId = null;
+
+        if (role === 'PLAYER') {
+          const [existingPlayers] = await conn.query(
+            'SELECT player_id FROM player WHERE email = ?',
+            [email]
+          );
+
+          if (existingPlayers.length > 0) {
+            playerId = existingPlayers[0].player_id;
+          } else {
+            const [playerInsert] = await conn.query(
+              `INSERT INTO player (name, email, current_rating, date_of_birth, gender)
+               VALUES (?, ?, 1200, NULL, NULL)`,
+              [fullName, email]
+            );
+            playerId = playerInsert.insertId;
+          }
+        }
+
+        const [userInsert] = await conn.query(
+          `INSERT INTO app_user (email, full_name, role, status, approval_status, email_verified, google_sub, player_id)
+           VALUES (?, ?, ?, 'ACTIVE', 'PENDING', 1, ?, ?)`,
+          [email, fullName, role, googleSub, playerId]
+        );
+
+        const [createdUsers] = await conn.query(
+          `SELECT user_id, email, full_name, role, status, approval_status, approval_note,
+                  email_verified, phone, organization, player_id, google_sub
+           FROM app_user WHERE user_id = ?`,
+          [userInsert.insertId]
+        );
+        user = createdUsers[0];
+      }
+    }
+
+    if (user.status === 'SUSPENDED') {
+      await conn.rollback();
+      return res.status(403).json({
+        error: 'Account has been suspended',
+        code: 'SUSPENDED'
+      });
+    }
+
+    await conn.query('UPDATE app_user SET last_login_at = NOW(), failed_logins = 0 WHERE user_id = ?', [user.user_id]);
+    await conn.commit();
+
+    let playerRow = null;
+    let profileComplete = true;
+
+    if (user.role === 'PLAYER') {
+      if (user.player_id) {
+        const [pRows] = await pool.query(
+          'SELECT player_id, name, country, date_of_birth, gender, experience_level, club, fide_id, current_rating FROM player WHERE player_id = ?',
+          [user.player_id]
+        );
+        playerRow = pRows[0] || null;
+      }
+      if (!playerRow || !playerRow.date_of_birth || !playerRow.gender) {
+        profileComplete = false;
+      }
+    } else if (user.role === 'ORGANIZER') {
+      if (!user.phone || !user.organization) {
+        profileComplete = false;
+      }
+    }
+
+    const token = signToken({
+      user_id: user.user_id,
+      role: user.role,
+      player_id: user.player_id
+    });
+
+    const permissions = getPermissions(user.role, user.approval_status);
+
+    return res.status(200).json({
+      message: 'Google login successful',
+      token,
+      profile_complete: profileComplete,
+      user: {
+        ...user,
+        player: playerRow,
+        permissions
+      },
+      permissions,
+      approval_status: user.approval_status,
+      approval_note: user.approval_note
+    });
+  } catch (err) {
+    await conn.rollback();
+    next(err);
+  } finally {
+    conn.release();
+  }
+};
+
 export const updateProfile = async (req, res, next) => {
-  const { full_name, phone, country, date_of_birth, organization } = req.body;
+  const {
+    full_name,
+    phone,
+    organization,
+    country,
+    date_of_birth,
+    gender,
+    experience_level,
+    club,
+    fide_id
+  } = req.body;
   const userId = req.user.user_id;
 
   const conn = await pool.getConnection();
@@ -578,7 +807,7 @@ export const updateProfile = async (req, res, next) => {
     await conn.beginTransaction();
 
     const [userRows] = await conn.query(
-      'SELECT user_id, role, player_id FROM app_user WHERE user_id = ?',
+      'SELECT user_id, role, player_id, status, approval_status, approval_note FROM app_user WHERE user_id = ?',
       [userId]
     );
 
@@ -614,7 +843,7 @@ export const updateProfile = async (req, res, next) => {
       );
     }
 
-    // If player_id exists, update player (name, country, date_of_birth)
+    // If player_id exists, update player (name, country, date_of_birth, gender, experience_level, club, fide_id)
     if (user.player_id) {
       const playerUpdates = [];
       const playerValues = [];
@@ -631,6 +860,22 @@ export const updateProfile = async (req, res, next) => {
         playerUpdates.push('date_of_birth = ?');
         playerValues.push(date_of_birth);
       }
+      if (gender !== undefined) {
+        playerUpdates.push('gender = ?');
+        playerValues.push(gender);
+      }
+      if (experience_level !== undefined) {
+        playerUpdates.push('experience_level = ?');
+        playerValues.push(experience_level);
+      }
+      if (club !== undefined) {
+        playerUpdates.push('club = ?');
+        playerValues.push(club);
+      }
+      if (fide_id !== undefined) {
+        playerUpdates.push('fide_id = ?');
+        playerValues.push(fide_id);
+      }
 
       if (playerUpdates.length > 0) {
         playerValues.push(user.player_id);
@@ -644,15 +889,39 @@ export const updateProfile = async (req, res, next) => {
     await conn.commit();
 
     const [updatedRows] = await pool.query(
-      `SELECT user_id, email, full_name, role, status, email_verified,
+      `SELECT user_id, email, full_name, role, status, approval_status, approval_note, email_verified,
               phone, organization, player_id, created_at, last_login_at
        FROM app_user WHERE user_id = ?`,
       [userId]
     );
 
+    const updatedUser = updatedRows[0];
+    let playerRow = null;
+    let profileComplete = true;
+
+    if (updatedUser.player_id) {
+      const [pRows] = await pool.query(
+        'SELECT player_id, name, country, date_of_birth, gender, experience_level, club, fide_id, current_rating FROM player WHERE player_id = ?',
+        [updatedUser.player_id]
+      );
+      playerRow = pRows[0] || null;
+      if (!playerRow || !playerRow.date_of_birth || !playerRow.gender) {
+        profileComplete = false;
+      }
+    } else if (updatedUser.role === 'ORGANIZER') {
+      if (!updatedUser.phone || !updatedUser.organization) {
+        profileComplete = false;
+      }
+    }
+
     return res.status(200).json({
       message: 'Profile updated successfully',
-      user: updatedRows[0]
+      profile_complete: profileComplete,
+      user: {
+        ...updatedUser,
+        player: playerRow,
+        permissions: getPermissions(updatedUser.role, updatedUser.approval_status)
+      }
     });
   } catch (err) {
     await conn.rollback();
@@ -700,6 +969,7 @@ export default {
   verifyEmail,
   resendVerification,
   login,
+  googleLogin,
   forgotPassword,
   resetPassword,
   getMe,
@@ -709,6 +979,7 @@ export default {
   verifyEmailSchema,
   resendVerificationSchema,
   loginSchema,
+  googleAuthSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   updateProfileSchema,

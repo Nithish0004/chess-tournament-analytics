@@ -18,7 +18,8 @@ import {
   Sparkles,
   Info,
   Clock,
-  ArrowRight
+  ArrowRight,
+  Edit3
 } from 'lucide-react';
 import {
   BarChart,
@@ -43,7 +44,8 @@ import {
   getStandingsApi,
   getTournamentAnalyticsApi,
   getTournamentPredictionsApi,
-  getPlayersApi
+  getPlayersApi,
+  generateNextRoundApi
 } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -53,6 +55,8 @@ import { StatCard } from '../components/StatCard';
 import { Avatar } from '../components/Avatar';
 import { Tabs } from '../components/Tabs';
 import { Modal } from '../components/Modal';
+import { TournamentStatusSteps } from '../components/TournamentStatusSteps';
+import { TournamentStatusButton } from '../components/TournamentStatusButton';
 import { getCountryFlag } from '../utils/countryFlags';
 
 export const TournamentDetail = () => {
@@ -75,6 +79,20 @@ export const TournamentDetail = () => {
   const [selectedPlayerToRegister, setSelectedPlayerToRegister] = useState('');
   const [joining, setJoining] = useState(false);
 
+  // Edit tournament modal state
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [generatingRound, setGeneratingRound] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: '',
+    format: 'ROUND_ROBIN',
+    start_date: '',
+    end_date: '',
+    max_players: '',
+    registration_deadline: '',
+    rounds_planned: ''
+  });
+
   const [isAddGameModalOpen, setIsAddGameModalOpen] = useState(false);
   const [targetRoundId, setTargetRoundId] = useState(null);
   const [gameForm, setGameForm] = useState({
@@ -96,7 +114,23 @@ export const TournamentDetail = () => {
     user?.player_id && registrations.some((r) => Number(r.player_id) === Number(user.player_id))
   );
 
+  const regCount = tournament?.registered !== undefined ? tournament.registered : registrations.length;
+  const isFull = Boolean(tournament?.max_players && regCount >= tournament.max_players);
+  const todayStr = new Date().toISOString().substring(0, 10);
+  const isDeadlinePassed = Boolean(
+    tournament?.registration_deadline && todayStr > tournament.registration_deadline.substring(0, 10)
+  );
+  const regDisabledReason = isFull
+    ? 'Tournament is full'
+    : isDeadlinePassed
+    ? 'Registration deadline has passed'
+    : null;
+
   const handleJoinTournament = async () => {
+    if (regDisabledReason) {
+      showToast(regDisabledReason, 'error');
+      return;
+    }
     setJoining(true);
     try {
       await registerMeApi(id);
@@ -198,14 +232,88 @@ export const TournamentDetail = () => {
     init();
   }, [fetchTournament, fetchStandings, fetchRoundsAndGames, fetchRegistrations, fetchAnalytics, fetchAllPlayers, fetchPredictions]);
 
-  // Status changer for logged-in admin
-  const handleStatusChange = async (newStatus) => {
+  // Open edit modal
+  const openEditModal = () => {
+    if (!tournament) return;
+    setEditForm({
+      name: tournament.name || '',
+      format: tournament.format || 'ROUND_ROBIN',
+      start_date: tournament.start_date ? tournament.start_date.substring(0, 10) : '',
+      end_date: tournament.end_date ? tournament.end_date.substring(0, 10) : '',
+      max_players: tournament.max_players !== null && tournament.max_players !== undefined ? tournament.max_players : '',
+      registration_deadline: tournament.registration_deadline ? tournament.registration_deadline.substring(0, 10) : '',
+      rounds_planned: tournament.rounds_planned !== null && tournament.rounds_planned !== undefined ? tournament.rounds_planned : ''
+    });
+    setIsEditModalOpen(true);
+  };
+
+  // Submit edit tournament
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    if (editForm.end_date < editForm.start_date) {
+      showToast('End date must be greater than or equal to start date', 'error');
+      return;
+    }
+    if (editForm.registration_deadline && editForm.start_date && editForm.registration_deadline > editForm.start_date) {
+      showToast('Registration deadline must be before or on the start date', 'error');
+      return;
+    }
+    if (editForm.max_players && Number(editForm.max_players) < 2) {
+      showToast('Max players must be at least 2', 'error');
+      return;
+    }
+    if (editForm.rounds_planned && Number(editForm.rounds_planned) < 1) {
+      showToast('Rounds planned must be at least 1', 'error');
+      return;
+    }
+
+    setSavingEdit(true);
     try {
-      await updateTournamentApi(id, { status: newStatus });
-      showToast(`Tournament status updated to ${newStatus}`, 'success');
-      fetchTournament();
+      await updateTournamentApi(id, {
+        name: editForm.name.trim(),
+        format: editForm.format,
+        start_date: editForm.start_date,
+        end_date: editForm.end_date,
+        max_players: editForm.max_players ? Number(editForm.max_players) : null,
+        registration_deadline: editForm.registration_deadline || null,
+        rounds_planned: editForm.rounds_planned ? Number(editForm.rounds_planned) : null
+      });
+      showToast('Tournament settings updated successfully', 'success');
+      setIsEditModalOpen(false);
+      await fetchTournament();
     } catch (err) {
-      showToast(err.userMessage || 'Failed to update tournament status', 'error');
+      showToast(err.userMessage || 'Failed to update tournament', 'error');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  // Generate next round using round-robin circle method
+  const handleGenerateRound = async () => {
+    if (!window.confirm('Generate next round using round-robin circle pairing method?')) {
+      return;
+    }
+    setGeneratingRound(true);
+    try {
+      const res = await generateNextRoundApi(id);
+      let pairingsText = '';
+      if (res?.games && Array.isArray(res.games) && res.games.length > 0) {
+        pairingsText = res.games
+          .map((g) => `${g.white_player_name || `Player ${g.white_player_id}`} vs ${g.black_player_name || `Player ${g.black_player_id}`}`)
+          .join(', ');
+      } else if (res?.pairings && Array.isArray(res.pairings)) {
+        pairingsText = res.pairings
+          .map((p) => `${p.white_player_name || p.white_name || p.white_player_id} vs ${p.black_player_name || p.black_name || p.black_player_id}`)
+          .join(', ');
+      } else {
+        pairingsText = res?.message || 'Round generated successfully';
+      }
+      showToast(`Round ${res?.round_no || ''} generated! Pairings: ${pairingsText}`, 'success');
+      await Promise.all([fetchTournament(), fetchRoundsAndGames(), fetchStandings()]);
+    } catch (err) {
+      showToast(err.userMessage || 'Failed to generate round', 'error');
+    } finally {
+      setGeneratingRound(false);
     }
   };
 
@@ -382,19 +490,51 @@ export const TournamentDetail = () => {
                 {tournament.start_date?.substring(0, 10)} &rarr; {tournament.end_date?.substring(0, 10)}
               </span>
             </div>
+            {tournament.registration_deadline && (
+              <div className="flex items-center gap-1.5 text-amber-700 font-semibold">
+                <Clock className="w-4 h-4 text-amber-500" />
+                <span>Deadline: {tournament.registration_deadline.substring(0, 10)}</span>
+              </div>
+            )}
             <div className="flex items-center gap-1.5">
               <Users className="w-4 h-4 text-slate-400" />
-              <span>{registrations.length} Players Registered</span>
+              <span>
+                Registered {regCount}{tournament.max_players ? ` / ${tournament.max_players}` : ''}
+              </span>
             </div>
             <div className="flex items-center gap-1.5">
               <Layers className="w-4 h-4 text-slate-400" />
-              <span>{rounds.length} Scheduled Rounds</span>
+              <span>
+                Rounds {tournament.rounds_created !== undefined ? tournament.rounds_created : rounds.length}
+                {tournament.rounds_planned ? ` / ${tournament.rounds_planned}` : ''}
+              </span>
             </div>
+            <div className="flex items-center gap-1.5">
+              <Swords className="w-4 h-4 text-slate-400" />
+              <span>
+                Games {tournament.games_finished || 0} / {tournament.games_total || 0}
+              </span>
+            </div>
+          </div>
+
+          {/* Status Step Indicator */}
+          <div className="pt-1.5">
+            <TournamentStatusSteps status={tournament.status} />
           </div>
         </div>
 
-        {/* Header Action Controls: Join Tournament, Status Changer, or View-only label */}
+        {/* Header Action Controls: Edit, Join Tournament, Single Status Button */}
         <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
+          {canManageTournament && tournament.status !== 'COMPLETED' && (
+            <button
+              onClick={openEditModal}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 shadow-2xs transition-all"
+            >
+              <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+              <span>Edit</span>
+            </button>
+          )}
+
           {user?.role === 'PLAYER' && tournament.status === 'UPCOMING' && (
             isPlayerRegistered ? (
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-xs border border-emerald-200">
@@ -402,35 +542,30 @@ export const TournamentDetail = () => {
                 <span>Registered</span>
               </span>
             ) : (
-              <button
-                onClick={handleJoinTournament}
-                disabled={joining}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
-              >
-                {joining ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />}
-                <span>Join Tournament</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleJoinTournament}
+                  disabled={joining || Boolean(regDisabledReason)}
+                  title={regDisabledReason || 'Join Tournament'}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {joining ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />}
+                  <span>Join Tournament</span>
+                </button>
+                {regDisabledReason && (
+                  <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                    {regDisabledReason}
+                  </span>
+                )}
+              </div>
             )
           )}
 
           {canManageTournament ? (
-            <div className="flex items-center gap-1.5 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
-              <span className="text-xs font-bold text-slate-500 px-2">Status:</span>
-              {['UPCOMING', 'ONGOING', 'COMPLETED'].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => handleStatusChange(s)}
-                  disabled={tournament.status === s}
-                  className={`text-xs px-3 py-1 rounded-lg font-bold transition-all ${
-                    tournament.status === s
-                      ? 'bg-[#2563EB] text-white shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+            <TournamentStatusButton
+              tournament={tournament}
+              onSuccess={fetchTournament}
+            />
           ) : (
             <span className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
               {tournament.owner_name ? `Owned by ${tournament.owner_name}` : 'View only'}
@@ -540,16 +675,48 @@ export const TournamentDetail = () => {
                 Manage scheduled tournament fixtures and record official board outcomes
               </p>
             </div>
-            {canManageTournament && (
-              <button
-                onClick={handleCreateRound}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all self-start sm:self-auto"
-              >
-                <PlusCircle className="w-4 h-4" />
-                <span>Add Next Round</span>
-              </button>
+            {canManageTournament && tournament.status === 'ONGOING' && (
+              <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                <button
+                  onClick={handleGenerateRound}
+                  disabled={generatingRound}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
+                  title="Generate next round pairings using round-robin circle method"
+                >
+                  {generatingRound ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4" />
+                  )}
+                  <span>Generate next round (round robin)</span>
+                </button>
+                <button
+                  onClick={handleCreateRound}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>Create Round</span>
+                </button>
+              </div>
             )}
           </div>
+
+          {tournament.status === 'UPCOMING' && (
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium flex items-center gap-2">
+              <Info className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>
+                Tournament is UPCOMING. Start the tournament to create rounds, schedule games, and record results.
+              </span>
+            </div>
+          )}
+          {tournament.status === 'COMPLETED' && (
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-xs font-medium flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>
+                Tournament is COMPLETED. Rounds and game outcomes are archived.
+              </span>
+            </div>
+          )}
 
           {rounds.length === 0 ? (
             <Card className="text-center py-12">
@@ -557,7 +724,7 @@ export const TournamentDetail = () => {
               <p className="text-sm font-bold text-slate-700">No rounds scheduled yet.</p>
               {isLoggedIn ? (
                 <p className="text-xs text-slate-500 mt-1">
-                  Click "Add Next Round" above to create Round 1.
+                  Click "Create Round" or "Generate next round (round robin)" above to create Round 1.
                 </p>
               ) : (
                 <p className="text-xs text-slate-500 mt-1">
@@ -586,13 +753,13 @@ export const TournamentDetail = () => {
                       </span>
                     </div>
 
-                    {canManageTournament && r.status !== 'COMPLETED' && (
+                    {canManageTournament && tournament.status === 'ONGOING' && r.status !== 'COMPLETED' && (
                       <button
                         onClick={() => openAddGameModal(r.round_id)}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:text-blue-600 text-xs font-bold shadow-2xs hover:border-blue-300 transition-all"
                       >
                         <PlusCircle className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Schedule Game</span>
+                        <span>Add Game</span>
                       </button>
                     )}
                   </div>
@@ -676,7 +843,7 @@ export const TournamentDetail = () => {
                                     {g.outcome}
                                   </Badge>
                                 </div>
-                              ) : canManageTournament ? (
+                              ) : canManageTournament && tournament.status === 'ONGOING' ? (
                                 <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200">
                                   <span className="text-[10px] uppercase font-bold text-slate-500 px-1.5">
                                     Record:
@@ -726,14 +893,23 @@ export const TournamentDetail = () => {
           subtitle="Players registered in this tournament with entry Elo snapshot"
           padding="p-0"
           actions={
-            canManageTournament && tournament.status !== 'COMPLETED' && (
-              <button
-                onClick={() => setIsRegisterModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs rounded-xl shadow-2xs transition-all"
-              >
-                <UserCheck className="w-3.5 h-3.5" />
-                <span>Register Player</span>
-              </button>
+            canManageTournament && tournament.status === 'UPCOMING' && (
+              <div className="flex items-center gap-2">
+                {regDisabledReason && (
+                  <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg">
+                    {regDisabledReason}
+                  </span>
+                )}
+                <button
+                  onClick={() => setIsRegisterModalOpen(true)}
+                  disabled={Boolean(regDisabledReason)}
+                  title={regDisabledReason || 'Register Player'}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs rounded-xl shadow-2xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Register Player</span>
+                </button>
+              </div>
             )
           }
         >
@@ -1258,6 +1434,131 @@ export const TournamentDetail = () => {
               className="px-5 py-2.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
             >
               {submitting ? 'Scheduling...' : 'Schedule Game'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal: Edit Tournament */}
+      <Modal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        title="Edit Tournament Settings"
+      >
+        <form onSubmit={handleEditSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+              Tournament Name *
+            </label>
+            <input
+              type="text"
+              required
+              value={editForm.name}
+              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+              Tournament Format
+            </label>
+            <select
+              value={editForm.format}
+              onChange={(e) => setEditForm({ ...editForm, format: e.target.value })}
+              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+            >
+              <option value="ROUND_ROBIN">Round Robin</option>
+              <option value="SWISS">Swiss System</option>
+              <option value="KNOCKOUT">Knockout</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                Start Date *
+              </label>
+              <input
+                type="date"
+                required
+                value={editForm.start_date}
+                onChange={(e) => setEditForm({ ...editForm, start_date: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                End Date *
+              </label>
+              <input
+                type="date"
+                required
+                min={editForm.start_date}
+                value={editForm.end_date}
+                onChange={(e) => setEditForm({ ...editForm, end_date: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                Max Players
+              </label>
+              <input
+                type="number"
+                min={2}
+                placeholder="e.g. 16"
+                value={editForm.max_players}
+                onChange={(e) => setEditForm({ ...editForm, max_players: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                Reg. Deadline
+              </label>
+              <input
+                type="date"
+                max={editForm.start_date || undefined}
+                value={editForm.registration_deadline}
+                onChange={(e) => setEditForm({ ...editForm, registration_deadline: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                Rounds Planned
+              </label>
+              <input
+                type="number"
+                min={1}
+                placeholder="e.g. 5"
+                value={editForm.rounds_planned}
+                onChange={(e) => setEditForm({ ...editForm, rounds_planned: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsEditModalOpen(false)}
+              className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={savingEdit}
+              className="px-5 py-2.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
+            >
+              {savingEdit ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </form>

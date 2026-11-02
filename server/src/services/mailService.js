@@ -97,13 +97,27 @@ export const sendPasswordResetEmail = async (to, token) => {
 
 export const sendAccountApprovedEmail = async (to, fullName) => {
   const subject = 'Your account was approved';
-  const text = `Hello ${fullName || ''},\n\nYour organizer account has been approved by an administrator. You may now log in to the Chess Tournament platform at ${env.CLIENT_URL}/login.`;
+  const text = `Hello ${fullName || ''},\n\nYour account has been approved by an administrator. You may now log in to the Chess Tournament platform at ${env.CLIENT_URL}/login.`;
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6;">
       <h2>Account Approved</h2>
       <p>Hello ${fullName || ''},</p>
-      <p>Your organizer account has been approved by an administrator. You may now log in to manage tournaments and players.</p>
+      <p>Your account has been approved by an administrator. You may now log in to participate in tournaments and activities.</p>
       <p><a href="${env.CLIENT_URL}/login" style="background-color: #16a34a; color: #ffffff; padding: 10px 18px; text-decoration: none; border-radius: 4px; display: inline-block;">Log In Now</a></p>
+    </div>
+  `;
+  return sendMail({ to, subject, text, html });
+};
+
+export const sendAccountRejectedEmail = async (to, fullName, note) => {
+  const subject = 'Your account registration update';
+  const text = `Hello ${fullName || ''},\n\nYour account was not approved by an administrator.\n${note ? `Reason/Note: ${note}` : ''}`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+      <h2>Account Registration Update</h2>
+      <p>Hello ${fullName || ''},</p>
+      <p>Your account was not approved by an administrator.</p>
+      ${note ? `<p><strong>Note:</strong> ${note}</p>` : ''}
     </div>
   `;
   return sendMail({ to, subject, text, html });
@@ -113,6 +127,7 @@ export default {
   sendVerificationEmail,
   sendPasswordResetEmail,
   sendAccountApprovedEmail,
+  sendAccountRejectedEmail,
   getCapturedEmails,
   getLastCapturedEmail,
   clearCapturedEmails

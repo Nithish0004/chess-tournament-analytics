@@ -4,6 +4,7 @@ import {
   verifyEmail,
   resendVerification,
   login,
+  googleLogin,
   forgotPassword,
   resetPassword,
   getMe,
@@ -13,6 +14,7 @@ import {
   verifyEmailSchema,
   resendVerificationSchema,
   loginSchema,
+  googleAuthSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   updateProfileSchema,
@@ -29,6 +31,7 @@ router.post('/register', authRateLimiter, validateBody(registerSchema), register
 router.post('/verify-email', authRateLimiter, validateBody(verifyEmailSchema), verifyEmail);
 router.post('/resend-verification', authRateLimiter, validateBody(resendVerificationSchema), resendVerification);
 router.post('/login', loginRateLimiter, validateBody(loginSchema), login);
+router.post('/google', authRateLimiter, validateBody(googleAuthSchema), googleLogin);
 router.post('/forgot-password', authRateLimiter, validateBody(forgotPasswordSchema), forgotPassword);
 router.post('/reset-password', authRateLimiter, validateBody(resetPasswordSchema), resetPassword);
 

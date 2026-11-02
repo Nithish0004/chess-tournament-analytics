@@ -1,5 +1,6 @@
 import { verifyToken } from '../utils/jwt.js';
 import { pool } from '../config/db.js';
+import { logAudit } from '../utils/auditLogger.js';
 
 /**
  * Validates JWT bearer token and re-verifies user status=ACTIVE in MySQL.
@@ -25,7 +26,7 @@ export const authMiddleware = async (req, res, next) => {
   try {
     // Re-check status=ACTIVE in database so suspended/unverified users are blocked immediately
     const [rows] = await pool.query(
-      'SELECT user_id, email, full_name, role, status, email_verified, player_id FROM app_user WHERE user_id = ?',
+      'SELECT user_id, email, full_name, role, status, approval_status, approval_note, email_verified, player_id FROM app_user WHERE user_id = ?',
       [decoded.user_id]
     );
 
@@ -47,6 +48,8 @@ export const authMiddleware = async (req, res, next) => {
       full_name: user.full_name,
       role: user.role,
       status: user.status,
+      approval_status: user.approval_status,
+      approval_note: user.approval_note,
       player_id: user.player_id
     };
 
@@ -57,6 +60,27 @@ export const authMiddleware = async (req, res, next) => {
 };
 
 export const requireAuth = authMiddleware;
+
+/**
+ * Ensures user is APPROVED (or ADMIN).
+ * Unapproved or rejected users get 403 {code:'NOT_APPROVED', message:'Your account is waiting for admin approval'}.
+ */
+export const requireApproved = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  if (req.user.role === 'ADMIN') {
+    return next();
+  }
+  if (req.user.approval_status !== 'APPROVED') {
+    return res.status(403).json({
+      code: 'NOT_APPROVED',
+      message: 'Your account is waiting for admin approval',
+      error: 'Your account is waiting for admin approval'
+    });
+  }
+  next();
+};
 
 /**
  * Role-based authorization middleware.
@@ -205,6 +229,13 @@ const handleSelfOrAdmin = async (req, res, next) => {
 
   // Reject direct rating edit early if present
   if (req.body && req.body.current_rating !== undefined) {
+    await logAudit({
+      actor_user_id: req.user?.user_id,
+      action: 'REJECT_RATING_EDIT',
+      entity: 'PLAYER',
+      entity_id: req.params.id ? Number(req.params.id) : null,
+      details: { attempted_rating: req.body.current_rating }
+    });
     return res.status(400).json({
       error: 'Rating cannot be edited directly',
       message: 'Rating cannot be edited directly'
@@ -405,75 +436,48 @@ export const checkGameOwnership = async (req, res, gameId) => {
 };
 
 /**
- * Returns a permissions dictionary for the given role.
+ * Returns a permissions dictionary derived from role + approval.
+ * Primary keys required:
+ * { can_explore, can_join_tournaments, can_create_tournaments, can_manage_players }
+ * (ADMIN: all true)
  */
-export const getPermissions = (role) => {
-  switch (role) {
-    case 'ADMIN':
-      return {
-        can_view_dashboard: true,
-        can_view_tournaments: true,
-        can_view_players: true,
-        can_view_sensitive_player_data: true,
-        can_create_tournament: true,
-        can_manage_any_tournament: true,
-        can_manage_completed_tournaments: true,
-        can_create_player: true,
-        can_edit_all_players: true,
-        can_register_players: true,
-        can_self_register: false,
-        can_create_rounds: true,
-        can_create_games: true,
-        can_record_results: true,
-        can_access_admin: true
-      };
-    case 'ORGANIZER':
-      return {
-        can_view_dashboard: true,
-        can_view_tournaments: true,
-        can_view_players: true,
-        can_view_sensitive_player_data: true,
-        can_create_tournament: true,
-        can_manage_any_tournament: false,
-        can_manage_completed_tournaments: false,
-        can_create_player: true,
-        can_edit_all_players: false,
-        can_edit_unlinked_players: true,
-        can_register_players: true,
-        can_self_register: false,
-        can_create_rounds: true,
-        can_create_games: true,
-        can_record_results: true,
-        can_access_admin: false
-      };
-    case 'PLAYER':
-      return {
-        can_view_dashboard: true,
-        can_view_tournaments: true,
-        can_view_players: true,
-        can_view_sensitive_player_data: false,
-        can_create_tournament: false,
-        can_manage_any_tournament: false,
-        can_manage_completed_tournaments: false,
-        can_create_player: false,
-        can_edit_all_players: false,
-        can_edit_own_player: true,
-        can_register_players: false,
-        can_self_register: true,
-        can_create_rounds: false,
-        can_create_games: false,
-        can_record_results: false,
-        can_access_admin: false
-      };
-    default:
-      return {};
-  }
+export const getPermissions = (role, approvalStatus) => {
+  const isApproved = approvalStatus === 'APPROVED';
+  const isAdmin = role === 'ADMIN';
+
+  const base = {
+    can_explore: true,
+    can_join_tournaments: isAdmin ? true : (role === 'PLAYER' && isApproved),
+    can_create_tournaments: isAdmin ? true : (role === 'ORGANIZER' && isApproved),
+    can_manage_players: isAdmin ? true : (role === 'ORGANIZER' && isApproved)
+  };
+
+  return {
+    ...base,
+    can_view_dashboard: true,
+    can_view_tournaments: true,
+    can_view_players: true,
+    can_view_sensitive_player_data: isAdmin || (role === 'ORGANIZER' && isApproved),
+    can_create_tournament: base.can_create_tournaments,
+    can_manage_any_tournament: isAdmin,
+    can_manage_completed_tournaments: isAdmin,
+    can_create_player: isAdmin || (role === 'ORGANIZER' && isApproved),
+    can_edit_all_players: isAdmin,
+    can_edit_unlinked_players: role === 'ORGANIZER' && isApproved,
+    can_register_players: base.can_manage_players,
+    can_self_register: base.can_join_tournaments,
+    can_create_rounds: base.can_create_tournaments,
+    can_create_games: base.can_create_tournaments,
+    can_record_results: base.can_manage_players,
+    can_access_admin: isAdmin
+  };
 };
 
 export default {
   authMiddleware,
   requireAuth,
   requireRole,
+  requireApproved,
   requireTournamentAccess,
   requireSelfOrAdmin,
   checkTournamentOwnership,

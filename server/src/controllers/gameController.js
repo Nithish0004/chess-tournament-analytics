@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { pool } from '../config/db.js';
 import { checkGameOwnership } from '../middleware/authMiddleware.js';
+import { logAudit } from '../utils/auditLogger.js';
 
 export const recordResultSchema = z.object({
   outcome: z.enum(['WHITE', 'BLACK', 'DRAW'], {
@@ -41,6 +42,14 @@ export const recordGameResult = async (req, res, next) => {
        ORDER BY rh.history_id ASC`,
       [gameId]
     );
+
+    await logAudit({
+      actor_user_id: req.user.user_id,
+      action: 'RECORD_RESULT',
+      entity: 'GAME',
+      entity_id: Number(gameId),
+      details: { outcome, rating_changes: ratingHistoryRows }
+    });
 
     return res.status(200).json({
       message: 'Result recorded successfully',

@@ -23,6 +23,9 @@ Content-Type: application/json
 @adminToken = {{adminLogin.response.body.token}}
 
 # 1.2 Register a new PLAYER
+# Fields: full_name, email, password, confirm_password, date_of_birth (age >= 5),
+# gender (MALE|FEMALE|OTHER|UNDISCLOSED), phone (optional), country,
+# experience_level (BEGINNER|INTERMEDIATE|ADVANCED|EXPERT), club (optional), fide_id (optional), accept_terms
 POST {{baseUrl}}/api/auth/register
 Content-Type: application/json
 
@@ -32,12 +35,18 @@ Content-Type: application/json
   "email": "hikaru@chess.example",
   "password": "PlayerPass123!",
   "confirm_password": "PlayerPass123!",
-  "accept_terms": true,
+  "date_of_birth": "1987-12-09",
+  "gender": "MALE",
+  "phone": "+15551234567",
   "country": "USA",
-  "date_of_birth": "1987-12-09"
+  "experience_level": "EXPERT",
+  "club": "Saint Louis Chess Club",
+  "fide_id": "2016192",
+  "accept_terms": true
 }
 
 # 1.3 Register a new ORGANIZER
+# Fields: full_name, email, password, confirm_password, phone (required), organization, country, accept_terms
 POST {{baseUrl}}/api/auth/register
 Content-Type: application/json
 
@@ -47,12 +56,13 @@ Content-Type: application/json
   "email": "arbiter@fide.example",
   "password": "ArbiterPass123!",
   "confirm_password": "ArbiterPass123!",
-  "accept_terms": true,
+  "phone": "+15559876543",
   "organization": "World Chess Federation",
-  "phone": "+15551234567"
+  "country": "Switzerland",
+  "accept_terms": true
 }
 
-# 1.4 Verify Email (use token printed in console / email)
+# 1.4 Verify Email (transitions status from PENDING_EMAIL to ACTIVE; approval_status stays PENDING)
 POST {{baseUrl}}/api/auth/verify-email
 Content-Type: application/json
 
@@ -68,7 +78,7 @@ Content-Type: application/json
   "email": "hikaru@chess.example"
 }
 
-# 1.6 Player Login
+# 1.6 Player Login (returns approval_status, approval_note, permissions object)
 # @name playerLogin
 POST {{baseUrl}}/api/auth/login
 Content-Type: application/json
@@ -81,7 +91,16 @@ Content-Type: application/json
 ### Store Player Token
 @playerToken = {{playerLogin.response.body.token}}
 
-# 1.7 Forgot Password (always generic 200)
+# 1.7 Google Sign-In (OAuth2 ID Token verification)
+POST {{baseUrl}}/api/auth/google
+Content-Type: application/json
+
+{
+  "id_token": "REPLACE_WITH_GOOGLE_ID_TOKEN",
+  "role": "PLAYER"
+}
+
+# 1.8 Forgot Password (generic 200 response)
 POST {{baseUrl}}/api/auth/forgot-password
 Content-Type: application/json
 
@@ -89,7 +108,7 @@ Content-Type: application/json
   "email": "hikaru@chess.example"
 }
 
-# 1.8 Reset Password
+# 1.9 Reset Password
 POST {{baseUrl}}/api/auth/reset-password
 Content-Type: application/json
 
@@ -99,11 +118,12 @@ Content-Type: application/json
   "confirm_password": "NewSecretPass123!"
 }
 
-# 1.9 Get Current User Profile (GET /me)
+# 1.10 Get Current User Profile (GET /me)
 GET {{baseUrl}}/api/auth/me
 Authorization: Bearer {{adminToken}}
 
-# 1.10 Update Current User Profile (PUT /me/profile)
+# 1.11 Update Current User Profile (PUT /me/profile)
+# Supports full_name, phone, organization, country, date_of_birth, gender, experience_level, club, fide_id
 PUT {{baseUrl}}/api/auth/me/profile
 Authorization: Bearer {{adminToken}}
 Content-Type: application/json
@@ -114,7 +134,7 @@ Content-Type: application/json
   "organization": "FIDE Global Operations"
 }
 
-# 1.11 Change Password
+# 1.12 Change Password
 POST {{baseUrl}}/api/auth/change-password
 Authorization: Bearer {{adminToken}}
 Content-Type: application/json
@@ -126,31 +146,74 @@ Content-Type: application/json
 
 
 ###
-### 2. ADMIN USER MANAGEMENT (ADMIN ONLY)
+### 2. ADMIN USER & APPROVAL MANAGEMENT (ADMIN ONLY)
 ###
 
-# 2.1 List Users (optional status and role filters)
-GET {{baseUrl}}/api/admin/users?status=PENDING_APPROVAL&role=ORGANIZER
+# 2.1 List Users (supports role, approval_status, status, q, limit, offset)
+GET {{baseUrl}}/api/admin/users?role=ORGANIZER&approval_status=PENDING&status=ACTIVE&limit=20&offset=0
 Authorization: Bearer {{adminToken}}
 
-# 2.2 Approve Organizer Account (transitions PENDING_APPROVAL -> ACTIVE)
+# 2.2 Get User by ID (includes linked player chess profile and tournament count for organizers)
+GET {{baseUrl}}/api/admin/users/2
+Authorization: Bearer {{adminToken}}
+
+# 2.3 Edit User Account / Linked Player Profile
+# Allowed user fields: full_name, phone, organization
+# Allowed linked player fields: name, country, date_of_birth, gender, experience_level, club, fide_id
+# Rating, email, role, password CANNOT be edited here
+PUT {{baseUrl}}/api/admin/users/2
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "full_name": "Updated Arbiter Name",
+  "phone": "+15550001122",
+  "organization": "National Chess Federation"
+}
+
+# 2.4 Approve User (sets approval_status=APPROVED, approved_by, approved_at; sets starting rating for fresh players)
+# For PLAYER with no games yet: applies starting_rating (100..3500) or default by experience_level (1000/1200/1500/1800)
 POST {{baseUrl}}/api/admin/users/2/approve
 Authorization: Bearer {{adminToken}}
+Content-Type: application/json
 
-# 2.3 Suspend User Account
+{
+  "starting_rating": 1500
+}
+
+# 2.5 Reject User (sets approval_status=REJECTED and approval_note, sends email)
+POST {{baseUrl}}/api/admin/users/2/reject
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "note": "Incomplete verification documents provided"
+}
+
+# 2.6 Suspend User Account
 POST {{baseUrl}}/api/admin/users/2/suspend
 Authorization: Bearer {{adminToken}}
 
-# 2.4 Reactivate User Account
+# 2.7 Reactivate User Account
 POST {{baseUrl}}/api/admin/users/2/reactivate
 Authorization: Bearer {{adminToken}}
 
+# 2.8 Change User Role (ADMIN cannot change own role)
+POST {{baseUrl}}/api/admin/users/2/role
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "role": "ORGANIZER"
+}
+
 
 ###
-### 3. PLAYERS
+### 3. PLAYERS & PRIVACY RULES
 ###
 
 # 3.1 List all players (Protected - requires active user)
+# Email/phone/dob masked unless caller is ADMIN, own player, or organizer with tournament enrollment access
 GET {{baseUrl}}/api/players
 Authorization: Bearer {{adminToken}}
 
@@ -158,7 +221,7 @@ Authorization: Bearer {{adminToken}}
 GET {{baseUrl}}/api/players?q=Magnus
 Authorization: Bearer {{adminToken}}
 
-# 3.3 Create a new player (ORGANIZER or ADMIN only)
+# 3.3 Create a new walk-in player (ORGANIZER or ADMIN only)
 POST {{baseUrl}}/api/players
 Authorization: Bearer {{adminToken}}
 Content-Type: application/json
@@ -168,6 +231,8 @@ Content-Type: application/json
   "email": "levon.aronian@example.com",
   "country": "USA",
   "date_of_birth": "1982-10-06",
+  "gender": "MALE",
+  "experience_level": "EXPERT",
   "current_rating": 2729
 }
 
@@ -175,7 +240,7 @@ Content-Type: application/json
 GET {{baseUrl}}/api/players/1
 Authorization: Bearer {{adminToken}}
 
-# 3.5 Update player by ID (PLAYER can only update own profile; ADMIN/ORGANIZER can manage)
+# 3.5 Update player by ID (PLAYER can only update own profile; ADMIN/ORGANIZER can edit unlinked players)
 PUT {{baseUrl}}/api/players/1
 Authorization: Bearer {{adminToken}}
 Content-Type: application/json
@@ -184,7 +249,7 @@ Content-Type: application/json
   "country": "Norway"
 }
 
-# 3.6 Attempt to edit player rating directly (Fails with 400 - rating changes ONLY via record_result)
+# 3.6 Direct Rating Edit Blocked (Fails with 400 - rating changes ONLY via record_result or initial approval)
 PUT {{baseUrl}}/api/players/1
 Authorization: Bearer {{adminToken}}
 Content-Type: application/json
@@ -206,7 +271,7 @@ Authorization: Bearer {{adminToken}}
 GET {{baseUrl}}/api/tournaments
 Authorization: Bearer {{adminToken}}
 
-# 4.2 Create tournament (ORGANIZER sets created_by, or ADMIN)
+# 4.2 Create tournament (Requires APPROVED ORGANIZER or ADMIN)
 POST {{baseUrl}}/api/tournaments
 Authorization: Bearer {{adminToken}}
 Content-Type: application/json
@@ -241,31 +306,35 @@ Content-Type: application/json
   "player_id": 1
 }
 
-# 4.6 Player Self-Registration (PLAYER only, UPCOMING tournaments only)
+# 4.6 Player Self-Registration (Requires APPROVED PLAYER, UPCOMING tournaments only)
 POST {{baseUrl}}/api/tournaments/1/register-me
 Authorization: Bearer {{playerToken}}
 
-# 4.7 Get all registrations for tournament
+# 4.7 Get all registrations for tournament (sensitive fields masked per privacy view v_organizer_player_access)
 GET {{baseUrl}}/api/tournaments/1/registrations
 Authorization: Bearer {{adminToken}}
 
-# 4.8 Create a new tournament round (Auto-increments round_no, Creator or ADMIN only)
+# 4.8 Remove a player registration (ADMIN any; ORGANIZER only own tournaments; only while tournament is UPCOMING)
+DELETE {{baseUrl}}/api/tournaments/1/registrations/1
+Authorization: Bearer {{adminToken}}
+
+# 4.9 Create a new tournament round (Auto-increments round_no, Creator or ADMIN only, requires ONGOING)
 POST {{baseUrl}}/api/tournaments/1/rounds
 Authorization: Bearer {{adminToken}}
 
-# 4.9 Get all rounds for tournament
+# 4.10 Get all rounds for tournament
 GET {{baseUrl}}/api/tournaments/1/rounds
 Authorization: Bearer {{adminToken}}
 
-# 4.10 Get tournament standings (from v_leaderboard)
+# 4.11 Get tournament standings (from v_leaderboard)
 GET {{baseUrl}}/api/tournaments/1/standings
 Authorization: Bearer {{adminToken}}
 
-# 4.11 Get tournament analytics
+# 4.12 Get tournament analytics
 GET {{baseUrl}}/api/tournaments/1/analytics
 Authorization: Bearer {{adminToken}}
 
-# 4.12 Get tournament predictions
+# 4.13 Get tournament predictions
 GET {{baseUrl}}/api/tournaments/1/predictions
 Authorization: Bearer {{adminToken}}
 
@@ -300,10 +369,17 @@ Content-Type: application/json
 
 
 ###
-### 6. DASHBOARD
+### 6. DASHBOARDS
 ###
 
-# 6.1 Dashboard Overview (requires active user)
+# 6.1 Role-Specific User Dashboard (GET /api/me/dashboard)
+# PLAYER: profile summary, approval_status, current rating, rating_history (last 10), performance, enrollments, open_tournaments, pending_games
+# ORGANIZER: approval_status, my_tournaments (with progress), enrolled_players count, recent_results
+# ADMIN: user counts by role/approval/status, top 10 v_pending_approvals, tournaments by status, recent audit logs
+GET {{baseUrl}}/api/me/dashboard
+Authorization: Bearer {{adminToken}}
+
+# 6.2 Public Platform Dashboard Overview
 GET {{baseUrl}}/api/dashboard
 Authorization: Bearer {{adminToken}}
 
@@ -315,17 +391,9 @@ Authorization: Bearer {{adminToken}}
 # 7.1 Unauthenticated Request -> 401
 GET {{baseUrl}}/api/players
 
-# 7.2 Player blocked from creating tournament -> 403 Forbidden
-POST {{baseUrl}}/api/tournaments
+# 7.2 Unapproved Player / Organizer Blocked -> 403 { code: "NOT_APPROVED" }
+POST {{baseUrl}}/api/tournaments/1/register-me
 Authorization: Bearer {{playerToken}}
-Content-Type: application/json
-
-{
-  "name": "Unauthorized Tournament",
-  "format": "SWISS",
-  "start_date": "2026-06-01",
-  "end_date": "2026-06-05"
-}
 
 # 7.3 Direct Rating Edit Blocked -> 400 Bad Request
 PUT {{baseUrl}}/api/players/1

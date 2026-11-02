@@ -8,7 +8,8 @@ import {
   CheckCircle2,
   Calendar,
   Layers,
-  Sparkles
+  Sparkles,
+  Info
 } from 'lucide-react';
 import {
   getTournamentsApi,
@@ -16,7 +17,9 @@ import {
   createRoundApi,
   getGamesByRoundApi,
   createGameApi,
-  getRegistrationsApi
+  recordResultApi,
+  getRegistrationsApi,
+  generateNextRoundApi
 } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -26,6 +29,7 @@ import { Badge } from '../components/Badge';
 import { Avatar } from '../components/Avatar';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
+import { TournamentStatusSteps } from '../components/TournamentStatusSteps';
 
 export const RoundsMatches = () => {
   const [tournaments, setTournaments] = useState([]);
@@ -39,6 +43,7 @@ export const RoundsMatches = () => {
   const [loadingRounds, setLoadingRounds] = useState(false);
   const [loadingGames, setLoadingGames] = useState(false);
   const [creatingRound, setCreatingRound] = useState(false);
+  const [generatingRound, setGeneratingRound] = useState(false);
 
   // Add Match Modal state
   const [isAddMatchModalOpen, setIsAddMatchModalOpen] = useState(false);
@@ -167,6 +172,54 @@ export const RoundsMatches = () => {
     }
   };
 
+  // Generate next round using round-robin circle method
+  const handleGenerateNextRound = async () => {
+    if (!selectedTournamentId) return;
+    if (!window.confirm('Generate next round using round-robin circle pairing method?')) {
+      return;
+    }
+    setGeneratingRound(true);
+    try {
+      const res = await generateNextRoundApi(selectedTournamentId);
+      let pairingsText = '';
+      if (res?.games && Array.isArray(res.games) && res.games.length > 0) {
+        pairingsText = res.games
+          .map((g) => `${g.white_player_name || `Player ${g.white_player_id}`} vs ${g.black_player_name || `Player ${g.black_player_id}`}`)
+          .join(', ');
+      } else if (res?.pairings && Array.isArray(res.pairings)) {
+        pairingsText = res.pairings
+          .map((p) => `${p.white_player_name || p.white_name || p.white_player_id} vs ${p.black_player_name || p.black_name || p.black_player_id}`)
+          .join(', ');
+      } else {
+        pairingsText = res?.message || 'Round generated successfully';
+      }
+      showToast(`Round ${res?.round_no || ''} generated! Pairings: ${pairingsText}`, 'success');
+      await loadRoundsAndPlayers(selectedTournamentId);
+      if (res?.round_id) {
+        setSelectedRoundId(String(res.round_id));
+      }
+      const updatedTourns = await getTournamentsApi();
+      setTournaments(updatedTourns);
+    } catch (err) {
+      showToast(err.userMessage || 'Failed to generate round', 'error');
+    } finally {
+      setGeneratingRound(false);
+    }
+  };
+
+  // Record game result
+  const handleRecordResult = async (gameId, outcome) => {
+    try {
+      await recordResultApi(gameId, outcome);
+      showToast(`Result recorded: ${outcome}`, 'success');
+      await loadGames(selectedRoundId);
+      const updatedTourns = await getTournamentsApi();
+      setTournaments(updatedTourns);
+    } catch (err) {
+      showToast(err.userMessage || 'Failed to record game result', 'error');
+    }
+  };
+
   // Open Add Match modal
   const handleOpenAddMatch = () => {
     // Next available board number
@@ -224,7 +277,7 @@ export const RoundsMatches = () => {
         subtitle="Schedule tournament rounds, board pairings, and view match outcomes"
         actions={
           selectedRoundId && (
-            canManage ? (
+            canManage && selectedTournament?.status === 'ONGOING' ? (
               <button
                 onClick={handleOpenAddMatch}
                 disabled={registeredPlayers.length < 2}
@@ -266,23 +319,49 @@ export const RoundsMatches = () => {
           </div>
 
           {selectedTournament && (
-            <div className="flex flex-wrap items-center gap-3 pt-2 md:pt-0">
-              <Badge variant={selectedTournament.status}>{selectedTournament.status}</Badge>
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
-                {selectedTournament.format}
-              </span>
-              <span className="text-xs text-slate-500 font-medium">
-                {registeredPlayers.length} registered players
-              </span>
-              {!canManage && (
-                <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-slate-100 text-slate-500 border border-slate-200">
-                  {selectedTournament.owner_name ? `Owned by ${selectedTournament.owner_name}` : 'View only'}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-2 md:pt-0">
+              <TournamentStatusSteps status={selectedTournament.status} size="sm" />
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-semibold px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
+                  {selectedTournament.format}
                 </span>
-              )}
+                <span className="font-medium text-slate-600">
+                  Registered: {registeredPlayers.length}{selectedTournament.max_players ? ` / ${selectedTournament.max_players}` : ''}
+                </span>
+                <span className="font-medium text-slate-600">
+                  Rounds: {rounds.length}{selectedTournament.rounds_planned ? ` / ${selectedTournament.rounds_planned}` : ''}
+                </span>
+                <span className="font-medium text-slate-600">
+                  Games: {selectedTournament.games_finished || 0} / {selectedTournament.games_total || 0}
+                </span>
+                {!canManage && (
+                  <span className="font-semibold px-2.5 py-1 rounded-md bg-slate-100 text-slate-500 border border-slate-200">
+                    {selectedTournament.owner_name ? `Owned by ${selectedTournament.owner_name}` : 'View only'}
+                  </span>
+                )}
+              </div>
             </div>
           )}
         </div>
       </Card>
+
+      {/* Status Warning Banners */}
+      {selectedTournament?.status === 'UPCOMING' && (
+        <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium flex items-center gap-2">
+          <Info className="w-4 h-4 text-amber-600 shrink-0" />
+          <span>
+            Tournament is UPCOMING. Rounds, matches, and pairings can only be configured once the tournament is started (ONGOING).
+          </span>
+        </div>
+      )}
+      {selectedTournament?.status === 'COMPLETED' && (
+        <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-xs font-medium flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>
+            Tournament is COMPLETED. Rounds and match outcomes are final and archived.
+          </span>
+        </div>
+      )}
 
       {/* Rounds Navigation Tabs + Add Round Button */}
       {loadingRounds ? (
@@ -297,15 +376,25 @@ export const RoundsMatches = () => {
             title="No rounds configured"
             description="This tournament currently does not have any scheduled rounds."
             action={
-              canManage && (
-                <button
-                  onClick={handleAddRound}
-                  disabled={creatingRound}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>{creatingRound ? 'Creating Round...' : 'Add Round 1'}</span>
-                </button>
+              canManage && selectedTournament?.status === 'ONGOING' && (
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    onClick={handleGenerateNextRound}
+                    disabled={generatingRound || registeredPlayers.length < 2}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>{generatingRound ? 'Generating...' : 'Generate Round 1 (round robin)'}</span>
+                  </button>
+                  <button
+                    onClick={handleAddRound}
+                    disabled={creatingRound}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span>{creatingRound ? 'Creating Round...' : 'Add Round 1'}</span>
+                  </button>
+                </div>
               )
             }
           />
@@ -333,16 +422,32 @@ export const RoundsMatches = () => {
               })}
             </div>
 
-            {/* Add Round Button */}
-            {canManage && (
-              <button
-                onClick={handleAddRound}
-                disabled={creatingRound}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 shadow-2xs transition-all disabled:opacity-50"
-              >
-                <PlusCircle className="w-3.5 h-3.5" />
-                <span>{creatingRound ? 'Adding...' : 'Add Round'}</span>
-              </button>
+            {/* Action Buttons: Generate Next Round & Add Round */}
+            {canManage && selectedTournament?.status === 'ONGOING' && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleGenerateNextRound}
+                  disabled={generatingRound}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 shadow-2xs transition-all disabled:opacity-50"
+                  title="Generate next round pairings using round-robin circle method"
+                >
+                  {generatingRound ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5" />
+                  )}
+                  <span>Generate next round (round robin)</span>
+                </button>
+
+                <button
+                  onClick={handleAddRound}
+                  disabled={creatingRound}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 shadow-2xs transition-all disabled:opacity-50"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>{creatingRound ? 'Adding...' : 'Add Round'}</span>
+                </button>
+              </div>
             )}
           </div>
 
@@ -376,7 +481,7 @@ export const RoundsMatches = () => {
                           title="No matches scheduled for this round"
                           description="Add pairings to this round using the Add Match button above."
                           action={
-                            canManage && (
+                            canManage && selectedTournament?.status === 'ONGOING' && (
                               <button
                                 onClick={handleOpenAddMatch}
                                 disabled={registeredPlayers.length < 2}
@@ -454,6 +559,30 @@ export const RoundsMatches = () => {
                                     ★ Upset
                                   </span>
                                 )}
+                              </div>
+                            ) : canManage && selectedTournament?.status === 'ONGOING' ? (
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  onClick={() => handleRecordResult(g.game_id, 'WHITE')}
+                                  className="px-2 py-0.5 text-xs font-bold bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 rounded shadow-2xs"
+                                  title="White Wins (1-0)"
+                                >
+                                  1-0
+                                </button>
+                                <button
+                                  onClick={() => handleRecordResult(g.game_id, 'DRAW')}
+                                  className="px-2 py-0.5 text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded"
+                                  title="Draw (½-½)"
+                                >
+                                  ½-½
+                                </button>
+                                <button
+                                  onClick={() => handleRecordResult(g.game_id, 'BLACK')}
+                                  className="px-2 py-0.5 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white rounded shadow-2xs"
+                                  title="Black Wins (0-1)"
+                                >
+                                  0-1
+                                </button>
                               </div>
                             ) : (
                               <span className="text-slate-400 text-xs font-medium">—</span>

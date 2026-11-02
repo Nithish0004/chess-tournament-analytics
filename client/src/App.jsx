@@ -21,6 +21,7 @@ import { Standings } from './pages/Standings';
 import { Analytics } from './pages/Analytics';
 import { Predictions } from './pages/Predictions';
 import { AdminUsers } from './pages/AdminUsers';
+import { AuditLog } from './pages/AuditLog';
 import { Forbidden } from './pages/Forbidden';
 
 const getPageMeta = (pathname) => {
@@ -96,6 +97,12 @@ const getPageMeta = (pathname) => {
       subtitle: 'System user directory, role allocations, and account access control'
     };
   }
+  if (pathname === '/admin/audit-log') {
+    return {
+      title: 'Audit Log',
+      subtitle: 'System security audit trail, operational actions, and administrative activity'
+    };
+  }
   if (pathname === '/forbidden') {
     return {
       title: 'Access Restricted',
@@ -152,12 +159,20 @@ function AppContent() {
             {/* Friendly 403 page */}
             <Route path="/forbidden" element={<Forbidden />} />
 
-            {/* Admin-only route */}
+            {/* Admin-only routes */}
             <Route
               path="/admin/users"
               element={
                 <ProtectedRoute allowedRoles={['ADMIN']}>
                   <AdminUsers />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/audit-log"
+              element={
+                <ProtectedRoute allowedRoles={['ADMIN']}>
+                  <AuditLog />
                 </ProtectedRoute>
               }
             />

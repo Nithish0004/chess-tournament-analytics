@@ -15,7 +15,8 @@ import {
   X,
   PlusCircle,
   User,
-  ShieldCheck
+  ShieldCheck,
+  FileText
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -40,7 +41,7 @@ export const Sidebar = () => {
   // Navigation items strictly segmented per user role:
   // - PLAYER: Dashboard, Tournaments, Players, Standings, Analytics, Predictions, My Profile
   // - ORGANIZER: plus Create Tournament, Rounds & Matches, Results
-  // - ADMIN: plus Users
+  // - ADMIN: plus Users, Audit Log
   const getNavItems = () => {
     const playerProfilePath = user?.player_id ? `/players/${user.player_id}` : '/profile';
 
@@ -55,7 +56,8 @@ export const Sidebar = () => {
         { name: 'Standings', path: '/standings', icon: ListOrdered },
         { name: 'Analytics', path: '/analytics', icon: PieChart },
         { name: 'Predictions', path: '/predictions', icon: Sparkles },
-        { name: 'Users', path: '/admin/users', icon: ShieldCheck }
+        { name: 'Users', path: '/admin/users', icon: ShieldCheck },
+        { name: 'Audit Log', path: '/admin/audit-log', icon: FileText }
       ];
     }
 

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { pool } from '../config/db.js';
 import { checkRoundOwnership } from '../middleware/authMiddleware.js';
+import { logAudit } from '../utils/auditLogger.js';
 
 export const createGameSchema = z.object({
   board_no: z.number().int().positive('board_no must be a positive integer'),
@@ -33,6 +34,14 @@ export const createGame = async (req, res, next) => {
        VALUES (?, ?, ?, ?, 'SCHEDULED')`,
       [roundId, board_no, white_player_id, black_player_id]
     );
+
+    await logAudit({
+      actor_user_id: req.user.user_id,
+      action: 'CREATE',
+      entity: 'GAME',
+      entity_id: result.insertId,
+      details: { round_id: Number(roundId), board_no, white_player_id, black_player_id }
+    });
 
     const [rows] = await pool.query(
       `SELECT g.game_id, g.round_id, g.board_no,

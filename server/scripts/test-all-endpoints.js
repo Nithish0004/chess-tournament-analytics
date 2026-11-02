@@ -29,6 +29,13 @@ const runTests = async () => {
   };
 
   try {
+    const [dbCheck] = await pool.query('SELECT DATABASE() AS current_db');
+    const currentDb = dbCheck[0]?.current_db;
+    if (currentDb !== 'chess_scratch') {
+      console.error(`FATAL: test-all-endpoints must only run against chess_scratch. Current database is: ${currentDb}`);
+      process.exit(1);
+    }
+
     // ---------------------------------------------------------------
     // 1. Health check & unauthenticated baseline
     // ---------------------------------------------------------------
@@ -46,8 +53,8 @@ const runTests = async () => {
     const ADMIN_PASS = 'AdminTest123!';
     const adminHash = await bcrypt.hash(ADMIN_PASS, 12);
     const [adminInsert] = await pool.query(
-      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified)
-       VALUES (?, ?, 'Test Administrator', 'ADMIN', 'ACTIVE', 1)`,
+      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified, approval_status)
+       VALUES (?, ?, 'Test Administrator', 'ADMIN', 'ACTIVE', 1, 'APPROVED')`,
       [ADMIN_EMAIL, adminHash]
     );
     const adminUserId = adminInsert.insertId;
@@ -69,8 +76,8 @@ const runTests = async () => {
     const ORG1_PASS = 'OrgOwner123!';
     const org1Hash = await bcrypt.hash(ORG1_PASS, 12);
     const [org1Insert] = await pool.query(
-      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified, organization)
-       VALUES (?, ?, 'Organizer Owner', 'ORGANIZER', 'ACTIVE', 1, 'Owner Org')`,
+      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified, organization, approval_status)
+       VALUES (?, ?, 'Organizer Owner', 'ORGANIZER', 'ACTIVE', 1, 'Owner Org', 'APPROVED')`,
       [ORG1_EMAIL, org1Hash]
     );
     const org1UserId = org1Insert.insertId;
@@ -92,8 +99,8 @@ const runTests = async () => {
     const ORG2_PASS = 'OrgOther123!';
     const org2Hash = await bcrypt.hash(ORG2_PASS, 12);
     const [org2Insert] = await pool.query(
-      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified, organization)
-       VALUES (?, ?, 'Organizer Other', 'ORGANIZER', 'ACTIVE', 1, 'Other Org')`,
+      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified, organization, approval_status)
+       VALUES (?, ?, 'Organizer Other', 'ORGANIZER', 'ACTIVE', 1, 'Other Org', 'APPROVED')`,
       [ORG2_EMAIL, org2Hash]
     );
     const org2UserId = org2Insert.insertId;
@@ -119,8 +126,8 @@ const runTests = async () => {
 
     const player1Hash = await bcrypt.hash(PLAYER1_PASS, 12);
     const [player1UserInsert] = await pool.query(
-      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified, player_id)
-       VALUES (?, ?, 'Test Player One', 'PLAYER', 'ACTIVE', 1, ?)`,
+      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified, player_id, approval_status)
+       VALUES (?, ?, 'Test Player One', 'PLAYER', 'ACTIVE', 1, ?, 'APPROVED')`,
       [PLAYER1_EMAIL, player1Hash, player1Id]
     );
     const player1UserId = player1UserInsert.insertId;
@@ -148,8 +155,8 @@ const runTests = async () => {
 
     const player2Hash = await bcrypt.hash('Player2Pass123!', 12);
     const [player2UserInsert] = await pool.query(
-      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified, player_id)
-       VALUES (?, ?, 'Test Player Two', 'PLAYER', 'ACTIVE', 1, ?)`,
+      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified, player_id, approval_status)
+       VALUES (?, ?, 'Test Player Two', 'PLAYER', 'ACTIVE', 1, ?, 'APPROVED')`,
       [PLAYER2_EMAIL, player2Hash, player2Id]
     );
     const player2UserId = player2UserInsert.insertId;
@@ -195,6 +202,12 @@ const runTests = async () => {
       [tOwnedId, matchupPlayerAId, tOwnedId, matchupPlayerBId]
     );
 
+    // Transition tOwned to ONGOING so rounds and games can be created
+    await pool.query(
+      "UPDATE tournament SET status = 'ONGOING' WHERE tournament_id = ?",
+      [tOwnedId]
+    );
+
     // Round 1 in tOwned
     const [rOwnedRes] = await pool.query(
       `INSERT INTO tournament_round (tournament_id, round_no, status)
@@ -211,20 +224,51 @@ const runTests = async () => {
     );
     const gOwnedId = gOwnedRes.insertId;
 
-    // Additional games for result testing per role
+    // Round 2 in tOwned for admin result test
+    const [rRound2Res] = await pool.query(
+      `INSERT INTO tournament_round (tournament_id, round_no, status)
+       VALUES (?, 2, 'SCHEDULED')`,
+      [tOwnedId]
+    );
+    const rRound2Id = rRound2Res.insertId;
+
     const [gAdminRes] = await pool.query(
       `INSERT INTO game (round_id, board_no, white_player_id, black_player_id, status)
-       VALUES (?, 2, ?, ?, 'SCHEDULED')`,
-      [rOwnedId, matchupPlayerAId, matchupPlayerBId]
+       VALUES (?, 1, ?, ?, 'SCHEDULED')`,
+      [rRound2Id, matchupPlayerAId, matchupPlayerBId]
     );
     const gAdminId = gAdminRes.insertId;
 
+    // Round 3 in tOwned for organizer result test
+    const [rRound3Res] = await pool.query(
+      `INSERT INTO tournament_round (tournament_id, round_no, status)
+       VALUES (?, 3, 'SCHEDULED')`,
+      [tOwnedId]
+    );
+    const rRound3Id = rRound3Res.insertId;
+
     const [gOrgRes] = await pool.query(
       `INSERT INTO game (round_id, board_no, white_player_id, black_player_id, status)
-       VALUES (?, 3, ?, ?, 'SCHEDULED')`,
-      [rOwnedId, matchupPlayerAId, matchupPlayerBId]
+       VALUES (?, 1, ?, ?, 'SCHEDULED')`,
+      [rRound3Id, matchupPlayerAId, matchupPlayerBId]
     );
     const gOrgId = gOrgRes.insertId;
+
+    // Round 4 for ADMIN game creation test
+    const [rGameAdminRes] = await pool.query(
+      `INSERT INTO tournament_round (tournament_id, round_no, status)
+       VALUES (?, 4, 'SCHEDULED')`,
+      [tOwnedId]
+    );
+    const rGameAdminId = rGameAdminRes.insertId;
+
+    // Round 5 for ORGANIZER (owner) game creation test
+    const [rGameOrgRes] = await pool.query(
+      `INSERT INTO tournament_round (tournament_id, round_no, status)
+       VALUES (?, 5, 'SCHEDULED')`,
+      [tOwnedId]
+    );
+    const rGameOrgId = rGameOrgRes.insertId;
 
     // Tournament 2: Dedicated upcoming tournament for self-registration test
     const [tSelfRegRes] = await pool.query(
@@ -234,10 +278,18 @@ const runTests = async () => {
     );
     const tSelfRegId = tSelfRegRes.insertId;
 
+    // Dedicated upcoming tournament for registration endpoint matrix test
+    const [tRegMatrixRes] = await pool.query(
+      `INSERT INTO tournament (name, format, start_date, end_date, status, created_by)
+       VALUES (?, 'SWISS', '2026-12-10', '2026-12-15', 'UPCOMING', ?)`,
+      [`Reg Matrix Tourney ${RUN_ID}`, org1UserId]
+    );
+    const tRegMatrixId = tRegMatrixRes.insertId;
+
     // Tournament 3: COMPLETED tournament owned by Organizer 1
     const [tCompletedRes] = await pool.query(
       `INSERT INTO tournament (name, format, start_date, end_date, status, created_by)
-       VALUES (?, 'KNOCKOUT', '2026-10-01', '2026-10-05', 'ONGOING', ?)`,
+       VALUES (?, 'KNOCKOUT', '2026-10-01', '2026-10-05', 'UPCOMING', ?)`,
       [`Completed Tourney ${RUN_ID}`, org1UserId]
     );
     const tCompletedId = tCompletedRes.insertId;
@@ -245,6 +297,11 @@ const runTests = async () => {
     await pool.query(
       'INSERT INTO registration (tournament_id, player_id, rating_at_entry) VALUES (?, ?, 1450), (?, ?, 1420)',
       [tCompletedId, matchupPlayerAId, tCompletedId, matchupPlayerBId]
+    );
+
+    await pool.query(
+      "UPDATE tournament SET status = 'ONGOING' WHERE tournament_id = ?",
+      [tCompletedId]
     );
 
     // Round and game in completed tournament
@@ -257,7 +314,7 @@ const runTests = async () => {
 
     const [gCompletedRes] = await pool.query(
       `INSERT INTO game (round_id, board_no, white_player_id, black_player_id, status)
-       VALUES (?, 1, ?, ?, 'SCHEDULED')`,
+       VALUES (?, 1, ?, ?, 'FINISHED')`,
       [rCompletedId, matchupPlayerAId, matchupPlayerBId]
     );
     const gCompletedId = gCompletedRes.insertId;
@@ -270,8 +327,8 @@ const runTests = async () => {
 
     // Dummy user for admin action testing
     const [dummyUserRes] = await pool.query(
-      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified)
-       VALUES (?, ?, 'Dummy Action Target', 'PLAYER', 'ACTIVE', 1)`,
+      `INSERT INTO app_user (email, password_hash, full_name, role, status, email_verified, approval_status)
+       VALUES (?, ?, 'Dummy Action Target', 'PLAYER', 'ACTIVE', 1, 'APPROVED')`,
       [`dummy_${RUN_ID}@test.local`, adminHash]
     );
     const dummyUserId = dummyUserRes.insertId;
@@ -433,7 +490,7 @@ const runTests = async () => {
       {
         rule: 'POST /api/tournaments/:id/register: ADMIN any; ORGANIZER owner only; PLAYER never',
         method: 'POST',
-        path: () => `/api/tournaments/${tOwnedId}/register`,
+        path: () => `/api/tournaments/${tRegMatrixId}/register`,
         body: (role) => {
           const pid = role === 'ADMIN' ? regPlayers[0] : (role === 'ORGANIZER (owner)' ? regPlayers[1] : 9999);
           return { player_id: pid };
@@ -460,7 +517,7 @@ const runTests = async () => {
       {
         rule: 'POST /api/rounds/:id/games: ADMIN any; ORGANIZER owner only; PLAYER never',
         method: 'POST',
-        path: () => `/api/rounds/${rOwnedId}/games`,
+        path: (role) => (role === 'ORGANIZER (owner)' ? `/api/rounds/${rGameOrgId}/games` : `/api/rounds/${rGameAdminId}/games`),
         body: () => ({
           board_no: ++boardCounter,
           white_player_id: matchupPlayerAId,
@@ -925,6 +982,9 @@ const runTests = async () => {
         email: LOCKOUT_EMAIL,
         password: 'CorrectPass123!',
         confirm_password: 'CorrectPass123!',
+        date_of_birth: '1998-01-01',
+        gender: 'MALE',
+        experience_level: 'INTERMEDIATE',
         accept_terms: true
       })
     });

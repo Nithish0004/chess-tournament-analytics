@@ -1,10 +1,14 @@
 import { Router } from 'express';
 import {
   getUsers,
-  approveOrganizer,
+  getUserById,
+  updateUser,
+  approveUser,
+  rejectUser,
   suspendUser,
   reactivateUser,
-  updateUserRole
+  updateUserRole,
+  getAuditLogs
 } from '../controllers/adminController.js';
 import { authMiddleware, requireRole } from '../middleware/authMiddleware.js';
 
@@ -15,7 +19,11 @@ router.use(authMiddleware);
 router.use(requireRole('ADMIN'));
 
 router.get('/users', getUsers);
-router.post('/users/:id/approve', approveOrganizer);
+router.get('/users/:id', getUserById);
+router.put('/users/:id', updateUser);
+router.get('/audit-log', getAuditLogs);
+router.post('/users/:id/approve', approveUser);
+router.post('/users/:id/reject', rejectUser);
 router.post('/users/:id/suspend', suspendUser);
 router.post('/users/:id/reactivate', reactivateUser);
 router.put('/users/:id/role', updateUserRole);

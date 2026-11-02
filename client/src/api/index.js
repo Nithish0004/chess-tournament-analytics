@@ -159,7 +159,40 @@ export const updateAdminUserRoleApi = async (userId, role) => {
 };
 
 export const updateAdminUserStatusApi = async (userId, status) => {
-  const { data } = await api.put(`/admin/users/${userId}/status`, { status });
+  const endpoint = status === 'SUSPENDED'
+    ? `/admin/users/${userId}/suspend`
+    : `/admin/users/${userId}/reactivate`;
+  const { data } = await api.post(endpoint);
+  return data;
+};
+
+export const approveAdminOrganizerApi = async (userId) => {
+  const { data } = await api.post(`/admin/users/${userId}/approve`);
+  return data;
+};
+
+export const getAuditLogApi = async (params = {}) => {
+  const { data } = await api.get('/admin/audit-log', { params });
+  return data;
+};
+
+export const startTournamentApi = async (tournamentId) => {
+  const { data } = await api.post(`/tournaments/${tournamentId}/start`);
+  return data;
+};
+
+export const completeTournamentApi = async (tournamentId) => {
+  const { data } = await api.post(`/tournaments/${tournamentId}/complete`);
+  return data;
+};
+
+export const getTournamentProgressApi = async (tournamentId) => {
+  const { data } = await api.get(`/tournaments/${tournamentId}/progress`);
+  return data;
+};
+
+export const generateNextRoundApi = async (tournamentId) => {
+  const { data } = await api.post(`/tournaments/${tournamentId}/rounds/generate`);
   return data;
 };
 
