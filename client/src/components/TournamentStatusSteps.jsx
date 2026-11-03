@@ -13,17 +13,17 @@ export const TournamentStatusSteps = ({ status, size = 'md' }) => {
         const isCurrent = idx === activeIndex;
         const isDone = idx < activeIndex;
 
-        let badgeClass = 'bg-slate-100 text-slate-400 border border-slate-200/80';
+        let badgeClass = 'bg-[#202020] text-zinc-500 border border-[#303030]';
         if (isCurrent) {
           if (step === 'COMPLETED') {
-            badgeClass = 'bg-purple-600 text-white font-black shadow-2xs';
+            badgeClass = 'bg-zinc-700 text-white font-bold border border-zinc-600';
           } else if (step === 'ONGOING') {
-            badgeClass = 'bg-blue-600 text-white font-black shadow-2xs';
+            badgeClass = 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold';
           } else {
-            badgeClass = 'bg-amber-500 text-white font-black shadow-2xs';
+            badgeClass = 'bg-blue-500/20 text-blue-400 border border-blue-500/30 font-bold';
           }
         } else if (isDone) {
-          badgeClass = 'bg-emerald-50 text-emerald-700 border border-emerald-200/90 font-semibold';
+          badgeClass = 'bg-[#202020] text-emerald-400 border border-emerald-500/20 font-semibold';
         }
 
         return (
@@ -33,11 +33,11 @@ export const TournamentStatusSteps = ({ status, size = 'md' }) => {
                 isSmall ? 'text-[10px] px-1.5 py-0.5' : 'text-xs px-2.5 py-1'
               } ${badgeClass}`}
             >
-              {isDone && <CheckCircle2 className={isSmall ? 'w-2.5 h-2.5 text-emerald-600' : 'w-3 h-3 text-emerald-600'} />}
+              {isDone && <CheckCircle2 className={isSmall ? 'w-2.5 h-2.5 text-emerald-400' : 'w-3 h-3 text-emerald-400'} />}
               <span>{step}</span>
             </div>
             {idx < steps.length - 1 && (
-              <span className={`font-bold ${idx < activeIndex ? 'text-emerald-500' : 'text-slate-300'} ${isSmall ? 'text-[10px]' : 'text-xs'}`}>
+              <span className={`font-bold ${idx < activeIndex ? 'text-emerald-500' : 'text-zinc-600'} ${isSmall ? 'text-[10px]' : 'text-xs'}`}>
                 &rarr;
               </span>
             )}

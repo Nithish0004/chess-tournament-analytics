@@ -6,43 +6,43 @@ export const StatCard = ({
   subtitle,
   icon: Icon,
   watermark: WatermarkIcon,
-  color = 'blue',
+  color = 'gold',
   trend,
   className = ''
 }) => {
   const colorSchemes = {
+    gold: {
+      iconBg: 'bg-[#C6A15B]/15 text-[#C6A15B] border-[#C6A15B]/30',
+      watermarkColor: 'text-[#C6A15B]/5'
+    },
     amber: {
-      iconBg: 'bg-amber-50 text-amber-600 border-amber-200/60',
-      watermarkColor: 'text-amber-500/10'
+      iconBg: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+      watermarkColor: 'text-amber-500/5'
     },
     blue: {
-      iconBg: 'bg-blue-50 text-blue-600 border-blue-200/60',
-      watermarkColor: 'text-blue-500/10'
-    },
-    indigo: {
-      iconBg: 'bg-indigo-50 text-indigo-600 border-indigo-200/60',
-      watermarkColor: 'text-indigo-500/10'
-    },
-    rose: {
-      iconBg: 'bg-rose-50 text-rose-600 border-rose-200/60',
-      watermarkColor: 'text-rose-500/10'
+      iconBg: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+      watermarkColor: 'text-blue-500/5'
     },
     emerald: {
-      iconBg: 'bg-emerald-50 text-emerald-600 border-emerald-200/60',
-      watermarkColor: 'text-emerald-500/10'
+      iconBg: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+      watermarkColor: 'text-emerald-500/5'
     },
     purple: {
-      iconBg: 'bg-purple-50 text-purple-600 border-purple-200/60',
-      watermarkColor: 'text-purple-500/10'
+      iconBg: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+      watermarkColor: 'text-purple-500/5'
+    },
+    rose: {
+      iconBg: 'bg-rose-500/15 text-rose-400 border-rose-500/30',
+      watermarkColor: 'text-rose-500/5'
     }
   };
 
-  const scheme = colorSchemes[color] || colorSchemes.blue;
+  const scheme = colorSchemes[color] || colorSchemes.gold;
   const Watermark = WatermarkIcon || Icon;
 
   return (
     <div
-      className={`relative overflow-hidden bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs transition-all hover:shadow-sm ${className}`}
+      className={`relative overflow-hidden bg-[#202020] rounded-2xl border border-[#303030] p-5 shadow-sm transition-all duration-200 hover:border-[#3d3d3d] ${className}`}
     >
       {/* Background Watermark Icon */}
       {Watermark && (
@@ -53,21 +53,27 @@ export const StatCard = ({
 
       <div className="relative z-10 flex items-start justify-between">
         <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <p className="text-xs font-semibold uppercase tracking-wider text-[#A1A1AA]">
             {title}
           </p>
           <div className="flex items-baseline gap-2 pt-1">
-            <span className="text-3xl font-black text-slate-900 tracking-tight">
+            <span className="text-3xl font-black text-[#F5F5F5] tracking-tight">
               {value}
             </span>
             {trend && (
-              <span className="text-xs font-semibold text-emerald-600">
-                {trend}
+              <span
+                className={`inline-flex items-center text-xs font-bold px-1.5 py-0.5 rounded ${
+                  trend.isPositive !== false
+                    ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20'
+                    : 'text-rose-400 bg-rose-500/10 border border-rose-500/20'
+                }`}
+              >
+                {trend.isPositive !== false ? '↑' : '↓'} {trend.label || trend.value}
               </span>
             )}
           </div>
           {subtitle && (
-            <p className="text-xs text-slate-500 font-medium pt-1">
+            <p className="text-[11px] text-[#A1A1AA] pt-1">
               {subtitle}
             </p>
           )}
@@ -75,7 +81,7 @@ export const StatCard = ({
 
         {Icon && (
           <div
-            className={`w-11 h-11 rounded-xl flex items-center justify-center border shadow-2xs shrink-0 ${scheme.iconBg}`}
+            className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border shadow-xs ${scheme.iconBg}`}
           >
             <Icon className="w-5 h-5" />
           </div>

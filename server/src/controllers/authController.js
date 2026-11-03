@@ -1,15 +1,56 @@
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import { OAuth2Client } from 'google-auth-library';
+import { countries } from 'countries-list';
 import { pool } from '../config/db.js';
 import { env } from '../config/env.js';
 import { signToken } from '../utils/jwt.js';
 import { hashToken, createAuthToken } from '../utils/tokens.js';
-import { sendVerificationEmail, sendPasswordResetEmail } from '../services/mailService.js';
+import { sendVerificationEmail, sendPasswordResetEmail, sendAccountApprovedEmail } from '../services/mailService.js';
 import { getPermissions } from '../middleware/authMiddleware.js';
 
 const BCRYPT_ROUNDS = 12;
 const googleClient = new OAuth2Client(env.GOOGLE_CLIENT_ID);
+
+// Country code resolver helper
+const resolveCountryData = (codeOrName) => {
+  if (!codeOrName || typeof codeOrName !== 'string') return { code: null, name: null };
+  const raw = codeOrName.trim();
+  const upper = raw.toUpperCase();
+
+  // If 2-letter ISO code exists in countries-list
+  if (upper.length === 2 && countries[upper]) {
+    return { code: upper, name: countries[upper].name };
+  }
+
+  // Lookup by country name (case-insensitive)
+  const lower = raw.toLowerCase();
+  for (const [code, data] of Object.entries(countries)) {
+    if (data.name.toLowerCase() === lower || (data.native && data.native.toLowerCase() === lower)) {
+      return { code, name: data.name };
+    }
+  }
+
+  // Common Aliases
+  if (lower === 'usa' || lower === 'united states' || lower === 'united states of america') {
+    return { code: 'US', name: 'United States' };
+  }
+  if (lower === 'uk' || lower === 'united kingdom' || lower === 'england') {
+    return { code: 'GB', name: 'United Kingdom' };
+  }
+  if (lower === 'russia') {
+    return { code: 'RU', name: 'Russia' };
+  }
+  if (lower === 'south korea') {
+    return { code: 'KR', name: 'South Korea' };
+  }
+
+  if (/^[A-Za-z]{2}$/.test(raw)) {
+    return { code: raw.toUpperCase(), name: raw.toUpperCase() };
+  }
+
+  return { code: null, name: raw };
+};
 
 const passwordValidation = z.string()
   .min(8, 'Password must be at least 8 characters')
@@ -33,15 +74,21 @@ const dateOfBirthValidation = z.string()
 export const registerPlayerObject = z.object({
   role: z.literal('PLAYER'),
   full_name: z.string().trim().min(1, 'Full name is required').max(100),
+  username: z.string().trim()
+    .min(3, 'Username must be at least 3 characters')
+    .max(20, 'Username cannot exceed 20 characters')
+    .regex(/^[A-Za-z0-9_]{3,20}$/, 'Username can only contain letters, numbers, and underscores')
+    .optional(),
   email: z.string().trim().email('Invalid email address').max(120),
   password: passwordValidation,
   confirm_password: z.string().min(1, 'Please confirm your password'),
+  country_code: z.string().trim().max(10).optional().nullable(),
+  country: z.string().trim().max(100).optional().nullable(),
   date_of_birth: dateOfBirthValidation,
   gender: z.enum(['MALE', 'FEMALE', 'OTHER', 'UNDISCLOSED'], {
     errorMap: () => ({ message: 'Gender must be MALE, FEMALE, OTHER, or UNDISCLOSED' })
   }),
   phone: z.string().trim().max(20).optional().nullable(),
-  country: z.string().trim().max(60).optional().nullable(),
   experience_level: z.enum(['BEGINNER', 'INTERMEDIATE', 'ADVANCED', 'EXPERT'], {
     errorMap: () => ({ message: 'Experience level must be BEGINNER, INTERMEDIATE, ADVANCED, or EXPERT' })
   }),
@@ -55,12 +102,18 @@ export const registerPlayerObject = z.object({
 export const registerOrganizerObject = z.object({
   role: z.literal('ORGANIZER'),
   full_name: z.string().trim().min(1, 'Full name is required').max(100),
+  username: z.string().trim()
+    .min(3, 'Username must be at least 3 characters')
+    .max(20, 'Username cannot exceed 20 characters')
+    .regex(/^[A-Za-z0-9_]{3,20}$/, 'Username can only contain letters, numbers, and underscores')
+    .optional(),
   email: z.string().trim().email('Invalid email address').max(120),
   password: passwordValidation,
   confirm_password: z.string().min(1, 'Please confirm your password'),
   phone: z.string().trim().min(1, 'Phone is required').max(20),
   organization: z.string().trim().min(1, 'Organization is required').max(120),
-  country: z.string().trim().max(60).optional().nullable(),
+  country_code: z.string().trim().max(10).optional().nullable(),
+  country: z.string().trim().max(100).optional().nullable(),
   accept_terms: z.literal(true, {
     errorMap: () => ({ message: 'You must accept the terms' })
   })
@@ -95,9 +148,11 @@ export const resendVerificationSchema = z.object({
 export const loginSchema = z.object({
   email: z.string().trim().optional(),
   username: z.string().trim().optional(),
-  password: z.string().min(1, 'Password is required')
-}).refine(data => !!(data.email || data.username), {
-  message: 'Email is required',
+  identifier: z.string().trim().optional(),
+  password: z.string().min(1, 'Password is required'),
+  remember_me: z.boolean().optional()
+}).refine(data => !!(data.email || data.username || data.identifier), {
+  message: 'Email or username is required',
   path: ['email']
 });
 
@@ -121,9 +176,11 @@ export const resetPasswordSchema = z.object({
 
 export const updateProfileSchema = z.object({
   full_name: z.string().trim().min(1).max(100).optional(),
+  username: z.string().trim().min(3).max(20).regex(/^[A-Za-z0-9_]{3,20}$/).optional(),
   phone: z.string().trim().max(20).optional().nullable(),
   organization: z.string().trim().max(120).optional().nullable(),
-  country: z.string().trim().max(60).optional().nullable(),
+  country: z.string().trim().max(100).optional().nullable(),
+  country_code: z.string().trim().max(10).optional().nullable(),
   date_of_birth: dateOfBirthValidation.optional().nullable(),
   gender: z.enum(['MALE', 'FEMALE', 'OTHER', 'UNDISCLOSED']).optional().nullable(),
   experience_level: z.enum(['BEGINNER', 'INTERMEDIATE', 'ADVANCED', 'EXPERT']).optional().nullable(),
@@ -144,68 +201,196 @@ export const changePasswordSchema = z.object({
 
 // Controllers
 
+/**
+ * Real-time username availability check (debounced on frontend).
+ * Case-insensitive, enforces 3-20 characters letters/numbers/underscore.
+ */
+export const checkUsername = async (req, res, next) => {
+  try {
+    const raw = req.query.username || req.body?.username || '';
+    const username = String(raw).trim();
+
+    if (!username) {
+      return res.status(400).json({ available: false, error: 'Username is required' });
+    }
+
+    if (username.length < 3 || username.length > 20) {
+      return res.status(200).json({
+        available: false,
+        error: 'Username must be between 3 and 20 characters long'
+      });
+    }
+
+    if (!/^[A-Za-z0-9_]{3,20}$/.test(username)) {
+      return res.status(200).json({
+        available: false,
+        error: 'Username may only contain letters, numbers, and underscores'
+      });
+    }
+
+    const [rows] = await pool.query(
+      'SELECT user_id FROM app_user WHERE LOWER(username) = LOWER(?) LIMIT 1',
+      [username]
+    );
+
+    if (rows.length > 0) {
+      return res.status(200).json({
+        available: false,
+        error: 'This username is already taken. Please choose another.'
+      });
+    }
+
+    return res.status(200).json({
+      available: true,
+      message: 'Username is available'
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Real-time email availability check (debounced on frontend).
+ * Case-insensitive uniqueness enforcement.
+ */
+export const checkEmail = async (req, res, next) => {
+  try {
+    const raw = req.query.email || req.body?.email || '';
+    const email = String(raw).trim().toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({ available: false, error: 'Email address is required' });
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(200).json({
+        available: false,
+        error: 'Invalid email address format'
+      });
+    }
+
+    const [rows] = await pool.query(
+      'SELECT user_id FROM app_user WHERE LOWER(email) = LOWER(?) LIMIT 1',
+      [email]
+    );
+
+    if (rows.length > 0) {
+      return res.status(200).json({
+        available: false,
+        error: 'An account with this email address already exists'
+      });
+    }
+
+    return res.status(200).json({
+      available: true,
+      message: 'Email address is available'
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Public User Registration
+ * Enforces role safety (never allows ADMIN self-assignment), validates uniqueness at application & DB levels.
+ */
 export const register = async (req, res, next) => {
   const {
-    role,
+    role: requestedRole,
     full_name,
+    username: rawUsername,
     email: rawEmail,
     password,
-    date_of_birth,
     country,
-    organization,
-    phone,
+    country_code: rawCountryCode,
+    date_of_birth,
     gender,
     experience_level,
     club,
-    fide_id
+    fide_id,
+    phone,
+    organization
   } = req.body;
 
-  const email = rawEmail.trim().toLowerCase();
-  const genericResponse = {
-    message: 'If this email can be registered, a verification link has been sent'
-  };
+  // Security Rule: Never allow self-assigning ADMIN privileges
+  if (requestedRole === 'ADMIN') {
+    return res.status(400).json({ error: 'Cannot register with administrator privileges' });
+  }
+
+  // Allow ORGANIZER only when properly submitted with phone & organization
+  const role = requestedRole === 'ORGANIZER' ? 'ORGANIZER' : 'PLAYER';
+
+  const email = (rawEmail || '').trim().toLowerCase();
+  if (!email) {
+    return res.status(400).json({ error: 'Email address is required', field: 'email' });
+  }
+
+  // Username validation & auto-generation fallback for legacy payloads
+  let username = (rawUsername || '').trim();
+  if (!username) {
+    const emailPrefix = email.split('@')[0].replace(/[^A-Za-z0-9_]/g, '').slice(0, 10) || 'player';
+    username = `${emailPrefix}_${Date.now().toString().slice(-6)}`.slice(0, 20);
+  }
+
+  if (!/^[A-Za-z0-9_]{3,20}$/.test(username)) {
+    return res.status(400).json({
+      error: 'Username must be 3-20 characters and contain only letters, numbers, and underscores',
+      field: 'username'
+    });
+  }
+
+  // Country resolution (ISO 3166-1 alpha-2 code and display name)
+  const resolved = resolveCountryData(rawCountryCode || country || '');
+  const countryCode = resolved.code;
+  const countryName = resolved.name || country || null;
 
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
-    // Check if app_user already exists
+    // 1. Strict Server-Side Email Uniqueness Check (Case-Insensitive)
     const [existingUsers] = await conn.query(
-      'SELECT user_id, email, status, email_verified FROM app_user WHERE email = ?',
+      'SELECT user_id, email FROM app_user WHERE LOWER(email) = LOWER(?)',
       [email]
     );
 
     if (existingUsers.length > 0) {
-      const existingUser = existingUsers[0];
-      if (existingUser.email_verified === 0) {
-        // Resend verification link if unverified
-        const { token } = await createAuthToken(conn, {
-          userId: existingUser.user_id,
-          purpose: 'VERIFY_EMAIL',
-          expiresInHours: 24
-        });
-        await conn.commit();
-        await sendVerificationEmail(email, token);
-      } else {
-        await conn.commit();
-      }
-      return res.status(200).json(genericResponse);
+      await conn.rollback();
+      return res.status(409).json({
+        error: 'An account with this email address already exists. Please sign in or use a different email.',
+        field: 'email',
+        code: 'EMAIL_ALREADY_EXISTS'
+      });
     }
 
-    // New user registration
+    // 2. Strict Server-Side Username Uniqueness Check (Case-Insensitive)
+    const [existingUsernames] = await conn.query(
+      'SELECT user_id, username FROM app_user WHERE LOWER(username) = LOWER(?)',
+      [username]
+    );
+
+    if (existingUsernames.length > 0) {
+      await conn.rollback();
+      return res.status(409).json({
+        error: 'This username is already taken. Please choose another username.',
+        field: 'username',
+        code: 'USERNAME_TAKEN'
+      });
+    }
+
+    // Secure password hashing
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     let playerId = null;
 
     if (role === 'PLAYER') {
-      // Check if a player row with that email already exists
+      // Check if player row already exists with this email (e.g. unlinked tournament competitor)
       const [existingPlayers] = await conn.query(
-        'SELECT player_id FROM player WHERE email = ?',
+        'SELECT player_id FROM player WHERE LOWER(email) = LOWER(?)',
         [email]
       );
 
       if (existingPlayers.length > 0) {
         const foundPlayerId = existingPlayers[0].player_id;
-        // Check if unlinked
         const [linkedUsers] = await conn.query(
           'SELECT user_id FROM app_user WHERE player_id = ?',
           [foundPlayerId]
@@ -214,36 +399,60 @@ export const register = async (req, res, next) => {
           playerId = foundPlayerId;
           await conn.query(
             `UPDATE player
-             SET name = ?, country = COALESCE(?, country), date_of_birth = ?,
-                 gender = ?, experience_level = ?, club = COALESCE(?, club), fide_id = COALESCE(?, fide_id)
+             SET name = ?, country = COALESCE(?, country), country_code = COALESCE(?, country_code),
+                 date_of_birth = COALESCE(?, date_of_birth),
+                 gender = COALESCE(?, gender), experience_level = COALESCE(?, experience_level),
+                 club = COALESCE(?, club), fide_id = COALESCE(?, fide_id)
              WHERE player_id = ?`,
-            [full_name, country || null, date_of_birth, gender, experience_level, club || null, fide_id || null, playerId]
+            [
+              full_name,
+              countryName,
+              countryCode,
+              date_of_birth || null,
+              gender || 'UNDISCLOSED',
+              experience_level || 'BEGINNER',
+              club || null,
+              fide_id || null,
+              playerId
+            ]
           );
         }
       }
 
       if (!playerId) {
-        // Create player row with default rating 1200
+        // Create new player row with default rating 1200
         const [playerInsert] = await conn.query(
-          `INSERT INTO player (name, email, country, date_of_birth, gender, experience_level, club, fide_id, current_rating)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1200)`,
-          [full_name, email, country || null, date_of_birth, gender, experience_level, club || null, fide_id || null]
+          `INSERT INTO player (name, email, country, country_code, date_of_birth, gender, experience_level, club, fide_id, current_rating)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1200)`,
+          [
+            full_name,
+            email,
+            countryName,
+            countryCode,
+            date_of_birth || null,
+            gender || 'UNDISCLOSED',
+            experience_level || 'BEGINNER',
+            club || null,
+            fide_id || null
+          ]
         );
         playerId = playerInsert.insertId;
       }
     }
 
-    // Insert into app_user
+    // Insert into app_user with username and ISO country code
     const [userInsert] = await conn.query(
-      `INSERT INTO app_user (email, password_hash, full_name, role, status, approval_status, email_verified, phone, organization, player_id)
-       VALUES (?, ?, ?, ?, 'PENDING_EMAIL', 'PENDING', 0, ?, ?, ?)`,
+      `INSERT INTO app_user (email, username, password_hash, full_name, role, status, approval_status, email_verified, phone, organization, country_code, player_id)
+       VALUES (?, ?, ?, ?, ?, 'PENDING_EMAIL', 'PENDING', 0, ?, ?, ?, ?)`,
       [
         email,
+        username,
         passwordHash,
         full_name,
         role,
         phone || null,
         role === 'ORGANIZER' ? (organization || null) : null,
+        countryCode,
         playerId
       ]
     );
@@ -262,9 +471,40 @@ export const register = async (req, res, next) => {
     // Send verification email
     await sendVerificationEmail(email, token);
 
-    return res.status(200).json(genericResponse);
+    return res.status(200).json({
+      message: 'Account created successfully! A verification link has been sent to your email.',
+      email,
+      username,
+      user_id: newUserId,
+      verification_token: token,
+      verify_url: `/verify-email?token=${token}`
+    });
   } catch (err) {
     await conn.rollback();
+
+    // Handle race-condition duplicate key constraints safely
+    if (err.code === 'ER_DUP_ENTRY' || err.errno === 1062) {
+      const msg = err.message || '';
+      if (msg.includes('uq_user_username') || msg.includes('username')) {
+        return res.status(409).json({
+          error: 'This username is already taken. Please choose another.',
+          field: 'username',
+          code: 'USERNAME_TAKEN'
+        });
+      }
+      if (msg.includes('email')) {
+        return res.status(409).json({
+          error: 'An account with this email address already exists. Please sign in.',
+          field: 'email',
+          code: 'EMAIL_ALREADY_EXISTS'
+        });
+      }
+      return res.status(409).json({
+        error: 'Duplicate registration entry detected. Please try again.',
+        code: 'DUPLICATE_ENTRY'
+      });
+    }
+
     next(err);
   } finally {
     conn.release();
@@ -330,7 +570,7 @@ export const verifyEmail = async (req, res, next) => {
 
 export const resendVerification = async (req, res, next) => {
   const { email: rawEmail } = req.body;
-  const email = rawEmail.trim().toLowerCase();
+  const email = (rawEmail || '').trim().toLowerCase();
   const genericResponse = {
     message: 'If this email can be registered, a verification link has been sent'
   };
@@ -358,7 +598,6 @@ export const resendVerification = async (req, res, next) => {
     if (recentTokens.length > 0) {
       const elapsedMs = Date.now() - new Date(recentTokens[0].created_at).getTime();
       if (elapsedMs < 60 * 1000) {
-        // Within 60s cooldown, do not send, return generic response
         return res.status(200).json(genericResponse);
       }
     }
@@ -377,19 +616,27 @@ export const resendVerification = async (req, res, next) => {
   }
 };
 
+/**
+ * Login: Supports authentication via either Email or Username.
+ * Secure password verification, account lockouts, role & approval status resolution.
+ */
 export const login = async (req, res, next) => {
-  const { email: rawEmail, username: rawUsername, password } = req.body;
-  const inputEmail = rawEmail || rawUsername || '';
-  const email = inputEmail.trim().toLowerCase();
+  const { email: rawEmail, username: rawUsername, identifier: rawIdentifier, password } = req.body;
+  const identifier = (rawEmail || rawUsername || rawIdentifier || '').trim();
+
+  if (!identifier || !password) {
+    return res.status(400).json({ error: 'Email or username and password are required' });
+  }
 
   try {
     const [rows] = await pool.query(
-      `SELECT user_id, email, password_hash, full_name, role, status,
-              approval_status, approval_note,
+      `SELECT user_id, email, username, password_hash, full_name, role, status,
+              approval_status, approval_note, country_code,
               email_verified, phone, organization, player_id,
               failed_logins, locked_until, created_at, last_login_at
-       FROM app_user WHERE email = ?`,
-      [email]
+       FROM app_user
+       WHERE LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)`,
+      [identifier, identifier]
     );
 
     if (rows.length === 0) {
@@ -400,6 +647,14 @@ export const login = async (req, res, next) => {
 
     if (!user.password_hash) {
       return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Check account lockout before password comparison
+    if (user.locked_until && new Date(user.locked_until) > new Date()) {
+      return res.status(429).json({
+        error: 'Account is temporarily locked due to too many failed attempts. Try again later.',
+        code: 'LOCKED'
+      });
     }
 
     const isMatch = await bcrypt.compare(password, user.password_hash);
@@ -422,14 +677,7 @@ export const login = async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Password matched: now check lockout and status
-    if (user.locked_until && new Date(user.locked_until) > new Date()) {
-      return res.status(429).json({
-        error: 'Account is temporarily locked due to too many failed attempts. Try again later.',
-        code: 'LOCKED'
-      });
-    }
-
+    // Password matched: check verification and suspension status
     if (user.status === 'PENDING_EMAIL') {
       return res.status(403).json({
         error: 'Please verify your email before logging in',
@@ -461,11 +709,13 @@ export const login = async (req, res, next) => {
     const userResponse = {
       user_id: user.user_id,
       email: user.email,
+      username: user.username,
       full_name: user.full_name,
       role: user.role,
       status: user.status,
       approval_status: user.approval_status,
       approval_note: user.approval_note,
+      country_code: user.country_code,
       email_verified: user.email_verified,
       phone: user.phone,
       organization: user.organization,
@@ -474,6 +724,16 @@ export const login = async (req, res, next) => {
       last_login_at: new Date(),
       permissions
     };
+
+    if (user.player_id) {
+      const [playerRows] = await pool.query(
+        'SELECT player_id, name, email, country, country_code, date_of_birth, gender, experience_level, club, fide_id, current_rating FROM player WHERE player_id = ?',
+        [user.player_id]
+      );
+      if (playerRows.length > 0) {
+        userResponse.player = playerRows[0];
+      }
+    }
 
     return res.status(200).json({
       message: 'Login successful',
@@ -490,7 +750,7 @@ export const login = async (req, res, next) => {
 
 export const forgotPassword = async (req, res, next) => {
   const { email: rawEmail } = req.body;
-  const email = rawEmail.trim().toLowerCase();
+  const email = (rawEmail || '').trim().toLowerCase();
   const genericResponse = {
     message: 'If this email is registered, password reset instructions have been sent'
   };
@@ -597,8 +857,8 @@ export const resetPassword = async (req, res, next) => {
 export const getMe = async (req, res, next) => {
   try {
     const [rows] = await pool.query(
-      `SELECT user_id, email, full_name, role, status, approval_status, approval_note, email_verified,
-              phone, organization, player_id, created_at, last_login_at
+      `SELECT user_id, email, username, full_name, role, status, approval_status, approval_note, email_verified,
+              phone, organization, country_code, player_id, created_at, last_login_at
        FROM app_user WHERE user_id = ?`,
       [req.user.user_id]
     );
@@ -612,7 +872,7 @@ export const getMe = async (req, res, next) => {
 
     if (user.player_id) {
       const [playerRows] = await pool.query(
-        'SELECT player_id, name, email, country, date_of_birth, gender, experience_level, club, fide_id, current_rating FROM player WHERE player_id = ?',
+        'SELECT player_id, name, email, country, country_code, date_of_birth, gender, experience_level, club, fide_id, current_rating FROM player WHERE player_id = ?',
         [user.player_id]
       );
       if (playerRows.length > 0) {
@@ -664,8 +924,8 @@ export const googleLogin = async (req, res, next) => {
     await conn.beginTransaction();
 
     let [users] = await conn.query(
-      `SELECT user_id, email, full_name, role, status, approval_status, approval_note,
-              email_verified, phone, organization, player_id, google_sub
+      `SELECT user_id, email, username, full_name, role, status, approval_status, approval_note,
+              email_verified, phone, organization, country_code, player_id, google_sub
        FROM app_user WHERE google_sub = ?`,
       [googleSub]
     );
@@ -675,8 +935,8 @@ export const googleLogin = async (req, res, next) => {
     if (!user) {
       // Check if user exists with this email
       const [emailUsers] = await conn.query(
-        `SELECT user_id, email, full_name, role, status, approval_status, approval_note,
-                email_verified, phone, organization, player_id, google_sub
+        `SELECT user_id, email, username, full_name, role, status, approval_status, approval_note,
+                email_verified, phone, organization, country_code, player_id, google_sub
          FROM app_user WHERE email = ?`,
         [email]
       );
@@ -712,15 +972,18 @@ export const googleLogin = async (req, res, next) => {
           }
         }
 
+        const usernameBase = email.split('@')[0].replace(/[^A-Za-z0-9_]/g, '').slice(0, 10) || 'google_user';
+        const uniqueUsername = `${usernameBase}_${Date.now().toString().slice(-6)}`.slice(0, 20);
+
         const [userInsert] = await conn.query(
-          `INSERT INTO app_user (email, full_name, role, status, approval_status, email_verified, google_sub, player_id)
-           VALUES (?, ?, ?, 'ACTIVE', 'PENDING', 1, ?, ?)`,
-          [email, fullName, role, googleSub, playerId]
+          `INSERT INTO app_user (email, username, full_name, role, status, approval_status, email_verified, google_sub, player_id)
+           VALUES (?, ?, ?, ?, 'ACTIVE', 'PENDING', 1, ?, ?)`,
+          [email, uniqueUsername, fullName, role, googleSub, playerId]
         );
 
         const [createdUsers] = await conn.query(
-          `SELECT user_id, email, full_name, role, status, approval_status, approval_note,
-                  email_verified, phone, organization, player_id, google_sub
+          `SELECT user_id, email, username, full_name, role, status, approval_status, approval_note,
+                  email_verified, phone, organization, country_code, player_id, google_sub
            FROM app_user WHERE user_id = ?`,
           [userInsert.insertId]
         );
@@ -745,12 +1008,12 @@ export const googleLogin = async (req, res, next) => {
     if (user.role === 'PLAYER') {
       if (user.player_id) {
         const [pRows] = await pool.query(
-          'SELECT player_id, name, country, date_of_birth, gender, experience_level, club, fide_id, current_rating FROM player WHERE player_id = ?',
+          'SELECT player_id, name, country, country_code, date_of_birth, gender, experience_level, club, fide_id, current_rating FROM player WHERE player_id = ?',
           [user.player_id]
         );
         playerRow = pRows[0] || null;
       }
-      if (!playerRow || !playerRow.date_of_birth || !playerRow.gender) {
+      if (!playerRow || !playerRow.country) {
         profileComplete = false;
       }
     } else if (user.role === 'ORGANIZER') {
@@ -791,9 +1054,11 @@ export const googleLogin = async (req, res, next) => {
 export const updateProfile = async (req, res, next) => {
   const {
     full_name,
+    username,
     phone,
     organization,
     country,
+    country_code: rawCountryCode,
     date_of_birth,
     gender,
     experience_level,
@@ -801,6 +1066,10 @@ export const updateProfile = async (req, res, next) => {
     fide_id
   } = req.body;
   const userId = req.user.user_id;
+
+  const resolved = resolveCountryData(rawCountryCode || country || '');
+  const countryCode = resolved.code;
+  const countryName = resolved.name || country;
 
   const conn = await pool.getConnection();
   try {
@@ -818,13 +1087,35 @@ export const updateProfile = async (req, res, next) => {
 
     const user = userRows[0];
 
-    // Update app_user (full_name, phone, organization)
+    // If username is changing, verify uniqueness
+    if (username) {
+      const [existingUsernames] = await conn.query(
+        'SELECT user_id FROM app_user WHERE LOWER(username) = LOWER(?) AND user_id != ?',
+        [username, userId]
+      );
+      if (existingUsernames.length > 0) {
+        await conn.rollback();
+        return res.status(409).json({
+          error: 'This username is already taken. Please choose another.',
+          field: 'username'
+        });
+      }
+    }
+
     const userUpdates = [];
     const userValues = [];
 
     if (full_name !== undefined) {
       userUpdates.push('full_name = ?');
       userValues.push(full_name);
+    }
+    if (username !== undefined) {
+      userUpdates.push('username = ?');
+      userValues.push(username);
+    }
+    if (countryCode !== null && countryCode !== undefined) {
+      userUpdates.push('country_code = ?');
+      userValues.push(countryCode);
     }
     if (phone !== undefined) {
       userUpdates.push('phone = ?');
@@ -843,7 +1134,6 @@ export const updateProfile = async (req, res, next) => {
       );
     }
 
-    // If player_id exists, update player (name, country, date_of_birth, gender, experience_level, club, fide_id)
     if (user.player_id) {
       const playerUpdates = [];
       const playerValues = [];
@@ -852,9 +1142,13 @@ export const updateProfile = async (req, res, next) => {
         playerUpdates.push('name = ?');
         playerValues.push(full_name);
       }
-      if (country !== undefined) {
+      if (countryName !== undefined && countryName !== null) {
         playerUpdates.push('country = ?');
-        playerValues.push(country);
+        playerValues.push(countryName);
+      }
+      if (countryCode !== undefined && countryCode !== null) {
+        playerUpdates.push('country_code = ?');
+        playerValues.push(countryCode);
       }
       if (date_of_birth !== undefined) {
         playerUpdates.push('date_of_birth = ?');
@@ -889,34 +1183,25 @@ export const updateProfile = async (req, res, next) => {
     await conn.commit();
 
     const [updatedRows] = await pool.query(
-      `SELECT user_id, email, full_name, role, status, approval_status, approval_note, email_verified,
-              phone, organization, player_id, created_at, last_login_at
+      `SELECT user_id, email, username, full_name, role, status, approval_status, approval_note, email_verified,
+              phone, organization, country_code, player_id, created_at, last_login_at
        FROM app_user WHERE user_id = ?`,
       [userId]
     );
 
     const updatedUser = updatedRows[0];
     let playerRow = null;
-    let profileComplete = true;
 
     if (updatedUser.player_id) {
       const [pRows] = await pool.query(
-        'SELECT player_id, name, country, date_of_birth, gender, experience_level, club, fide_id, current_rating FROM player WHERE player_id = ?',
+        'SELECT player_id, name, country, country_code, date_of_birth, gender, experience_level, club, fide_id, current_rating FROM player WHERE player_id = ?',
         [updatedUser.player_id]
       );
       playerRow = pRows[0] || null;
-      if (!playerRow || !playerRow.date_of_birth || !playerRow.gender) {
-        profileComplete = false;
-      }
-    } else if (updatedUser.role === 'ORGANIZER') {
-      if (!updatedUser.phone || !updatedUser.organization) {
-        profileComplete = false;
-      }
     }
 
     return res.status(200).json({
       message: 'Profile updated successfully',
-      profile_complete: profileComplete,
       user: {
         ...updatedUser,
         player: playerRow,
@@ -965,6 +1250,8 @@ export const changePassword = async (req, res, next) => {
 };
 
 export default {
+  checkUsername,
+  checkEmail,
   register,
   verifyEmail,
   resendVerification,

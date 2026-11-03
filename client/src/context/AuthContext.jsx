@@ -26,9 +26,10 @@ export const AuthProvider = ({ children }) => {
     if (!activeToken) return;
     try {
       const data = await getMeApi();
-      if (data?.user) {
-        setUser(data.user);
-        localStorage.setItem('chess_user', JSON.stringify(data.user));
+      const userData = data?.user || (data?.user_id ? data : null);
+      if (userData) {
+        setUser(userData);
+        localStorage.setItem('chess_user', JSON.stringify(userData));
       }
     } catch (err) {
       if (err.response?.status === 401 || err.response?.status === 403) {
@@ -43,17 +44,55 @@ export const AuthProvider = ({ children }) => {
     }
   }, [token, refreshUser]);
 
-  const login = async (emailOrUsername, password) => {
-    const data = await loginApi(emailOrUsername, password);
-    setToken(data.token);
-    setUser(data.user);
-    localStorage.setItem('chess_token', data.token);
-    localStorage.setItem('chess_user', JSON.stringify(data.user));
+  const setAuthSession = useCallback((newToken, newUser) => {
+    setToken(newToken);
+    setUser(newUser);
+    if (newToken) {
+      localStorage.setItem('chess_token', newToken);
+    } else {
+      localStorage.removeItem('chess_token');
+    }
+    if (newUser) {
+      localStorage.setItem('chess_user', JSON.stringify(newUser));
+    } else {
+      localStorage.removeItem('chess_user');
+    }
+  }, []);
+
+  const login = async (emailOrUsername, password, rememberMe = false) => {
+    const data = await loginApi(emailOrUsername, password, rememberMe);
+    const resolvedUser = data.user || {
+      user_id: data.user_id,
+      email: data.email,
+      username: data.username,
+      full_name: data.full_name,
+      role: data.role,
+      status: data.status,
+      approval_status: data.approval_status,
+      approval_note: data.approval_note,
+      permissions: data.permissions
+    };
+    setAuthSession(data.token, resolvedUser);
+    if (rememberMe) {
+      localStorage.setItem('chess_remembered_identifier', emailOrUsername);
+    } else {
+      localStorage.removeItem('chess_remembered_identifier');
+    }
     return data;
   };
 
   return (
-    <AuthContext.Provider value={{ token, user, isLoggedIn: !!token, login, logout, refreshUser }}>
+    <AuthContext.Provider
+      value={{
+        token,
+        user,
+        isLoggedIn: !!token,
+        login,
+        logout,
+        refreshUser,
+        setAuthSession
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

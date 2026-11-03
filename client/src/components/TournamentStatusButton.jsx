@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { Play, CheckCircle, Loader2 } from 'lucide-react';
 import { startTournamentApi, completeTournamentApi } from '../api';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
 
 export const TournamentStatusButton = ({ tournament, onSuccess, size = 'md' }) => {
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
+  const { user } = useAuth();
 
   if (!tournament || !tournament.can_manage) {
     return null;
@@ -31,7 +33,7 @@ export const TournamentStatusButton = ({ tournament, onSuccess, size = 'md' }) =
   if (status === 'UPCOMING') {
     label = 'Start tournament';
     Icon = Play;
-    btnColor = 'bg-emerald-600 hover:bg-emerald-700 text-white';
+    btnColor = 'bg-emerald-600 hover:bg-emerald-500 text-white';
     if (registeredCount < 2) {
       disabled = true;
       tooltip = 'At least 2 registered players are needed to start the tournament';
@@ -41,13 +43,19 @@ export const TournamentStatusButton = ({ tournament, onSuccess, size = 'md' }) =
   } else if (status === 'ONGOING') {
     label = 'Complete tournament';
     Icon = CheckCircle;
-    btnColor = 'bg-purple-600 hover:bg-purple-700 text-white';
+    btnColor = 'bg-[#C6A15B] hover:bg-[#d8b167] text-black font-bold';
     if (gamesTotal === 0 || gamesFinished < gamesTotal) {
       disabled = true;
       tooltip = 'Cannot complete: some games are not finished yet';
     } else {
       tooltip = 'Complete the tournament (all games finished)';
     }
+  }
+
+  const isApproved = user?.role === 'ADMIN' || user?.approval_status === 'APPROVED';
+  if (!isApproved) {
+    disabled = true;
+    tooltip = 'Your account is waiting for admin approval';
   }
 
   const handleClick = async (e) => {
@@ -67,7 +75,6 @@ export const TournamentStatusButton = ({ tournament, onSuccess, size = 'md' }) =
         await onSuccess();
       }
     } catch (err) {
-      // Axios interceptor will also dispatch toast, but in case:
       showToast(err.userMessage || 'Failed to update tournament status', 'error');
     } finally {
       setLoading(false);
@@ -84,7 +91,7 @@ export const TournamentStatusButton = ({ tournament, onSuccess, size = 'md' }) =
         disabled={disabled || loading}
         className={`inline-flex items-center gap-1.5 font-bold rounded-xl transition-all shadow-xs ${
           isSmall ? 'px-2.5 py-1 text-xs' : 'px-3.5 py-2 text-xs sm:text-sm'
-        } ${btnColor} disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-slate-300 disabled:bg-slate-200 disabled:text-slate-500`}
+        } ${btnColor} disabled:opacity-40 disabled:cursor-not-allowed disabled:bg-[#282828] disabled:text-zinc-600`}
       >
         {loading ? (
           <Loader2 className={isSmall ? 'w-3 h-3 animate-spin' : 'w-4 h-4 animate-spin'} />

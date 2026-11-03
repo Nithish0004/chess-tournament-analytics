@@ -11,6 +11,10 @@ import { Login } from './pages/Login';
 import { AdminLogin } from './pages/AdminLogin';
 import { Register } from './pages/Register';
 import { VerifyEmail } from './pages/VerifyEmail';
+import { ForgotPassword } from './pages/ForgotPassword';
+import { ResetPassword } from './pages/ResetPassword';
+import { CompleteProfile } from './pages/CompleteProfile';
+import { ApprovalBanner } from './components/ApprovalBanner';
 import { Players } from './pages/Players';
 import { PlayerProfile } from './pages/PlayerProfile';
 import { Tournaments } from './pages/Tournaments';
@@ -20,6 +24,8 @@ import { Results } from './pages/Results';
 import { Standings } from './pages/Standings';
 import { Analytics } from './pages/Analytics';
 import { Predictions } from './pages/Predictions';
+import { Messages } from './pages/Messages';
+import { Settings } from './pages/Settings';
 import { AdminUsers } from './pages/AdminUsers';
 import { AuditLog } from './pages/AuditLog';
 import { Forbidden } from './pages/Forbidden';
@@ -91,6 +97,18 @@ const getPageMeta = (pathname) => {
       subtitle: 'Machine learning forecasts, expected points, and statistical outcomes'
     };
   }
+  if (pathname === '/messages') {
+    return {
+      title: 'Messages',
+      subtitle: 'Direct communications, arbiter announcements and tournament channels'
+    };
+  }
+  if (pathname === '/settings') {
+    return {
+      title: 'Settings',
+      subtitle: 'Account details, security settings and visual preferences'
+    };
+  }
   if (pathname === '/admin/users') {
     return {
       title: 'User Management',
@@ -110,8 +128,8 @@ const getPageMeta = (pathname) => {
     };
   }
   return {
-    title: 'ChessTourn',
-    subtitle: 'Tournament Management & Analytics'
+    title: 'Chess Magic',
+    subtitle: 'Tournament Management & Performance Analytics'
   };
 };
 
@@ -128,7 +146,7 @@ function AppContent() {
   const location = useLocation();
 
   // If on authentication routes, render standalone split-screen without sidebar & topbar
-  if (['/login', '/login/admin', '/admin/login', '/register', '/verify-email'].includes(location.pathname)) {
+  if (['/login', '/login/admin', '/admin/login', '/register', '/verify-email', '/forgot-password', '/reset-password', '/complete-profile'].includes(location.pathname)) {
     return (
       <Routes>
         <Route path="/login" element={<Login />} />
@@ -136,6 +154,9 @@ function AppContent() {
         <Route path="/admin/login" element={<Navigate to="/login/admin" replace />} />
         <Route path="/register" element={<Register />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/complete-profile" element={<CompleteProfile />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
@@ -144,7 +165,7 @@ function AppContent() {
   const { title, subtitle } = getPageMeta(location.pathname);
 
   return (
-    <div className="min-h-screen bg-[#F4F7FB] text-slate-900 flex flex-col lg:flex-row">
+    <div className="min-h-screen bg-[#101010] text-[#F5F5F5] flex flex-col lg:flex-row">
       {/* 260px Fixed Sidebar on Desktop, Drawer on Mobile */}
       <Sidebar />
 
@@ -152,6 +173,9 @@ function AppContent() {
       <div className="flex-1 lg:pl-[260px] min-w-0 flex flex-col min-h-screen">
         {/* Top Header Bar */}
         <TopBar title={title} subtitle={subtitle} />
+
+        {/* Global Account Approval Banner */}
+        <ApprovalBanner />
 
         {/* Page Content Viewport with Route Guards */}
         <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
@@ -269,10 +293,34 @@ function AppContent() {
               }
             />
             <Route
+              path="/messages"
+              element={
+                <ProtectedRoute>
+                  <Messages />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <Settings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/profile"
               element={
                 <ProtectedRoute>
                   <ProfileRedirect />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/complete-profile"
+              element={
+                <ProtectedRoute>
+                  <CompleteProfile />
                 </ProtectedRoute>
               }
             />

@@ -1,11 +1,27 @@
 import api from './axios';
 
 // Auth
-export const loginApi = async (emailOrUsername, password) => {
+export const checkUsernameApi = async (username) => {
+  const { data } = await api.get('/auth/check-username', {
+    params: { username }
+  });
+  return data;
+};
+
+export const checkEmailApi = async (email) => {
+  const { data } = await api.get('/auth/check-email', {
+    params: { email }
+  });
+  return data;
+};
+
+export const loginApi = async (emailOrUsername, password, rememberMe = false) => {
   const { data } = await api.post('/auth/login', {
     email: emailOrUsername,
     username: emailOrUsername,
-    password
+    identifier: emailOrUsername,
+    password,
+    remember_me: rememberMe
   });
   return data;
 };
@@ -25,8 +41,40 @@ export const resendVerificationApi = async (email) => {
   return data;
 };
 
+export const googleAuthApi = async ({ id_token, role }) => {
+  const { data } = await api.post('/auth/google', { id_token, role });
+  return data;
+};
+
+export const forgotPasswordApi = async (email) => {
+  const { data } = await api.post('/auth/forgot-password', { email });
+  return data;
+};
+
+export const resetPasswordApi = async ({ token, password, confirm_password }) => {
+  const { data } = await api.post('/auth/reset-password', {
+    token,
+    password,
+    confirm_password
+  });
+  return data;
+};
+
 export const getMeApi = async () => {
   const { data } = await api.get('/auth/me');
+  return data;
+};
+
+export const updateProfileApi = async (profileData) => {
+  const { data } = await api.put('/auth/me/profile', profileData);
+  return data;
+};
+
+export const changePasswordApi = async ({ current_password, new_password }) => {
+  const { data } = await api.post('/auth/change-password', {
+    current_password,
+    new_password
+  });
   return data;
 };
 
@@ -95,6 +143,11 @@ export const getRegistrationsApi = async (tournamentId) => {
   return data;
 };
 
+export const removeRegistrationApi = async (tournamentId, playerId) => {
+  const { data } = await api.delete(`/tournaments/${tournamentId}/registrations/${playerId}`);
+  return data;
+};
+
 export const createRoundApi = async (tournamentId) => {
   const { data } = await api.post(`/tournaments/${tournamentId}/rounds`);
   return data;
@@ -120,6 +173,26 @@ export const getTournamentPredictionsApi = async (tournamentId) => {
   return data;
 };
 
+export const startTournamentApi = async (tournamentId) => {
+  const { data } = await api.post(`/tournaments/${tournamentId}/start`);
+  return data;
+};
+
+export const completeTournamentApi = async (tournamentId) => {
+  const { data } = await api.post(`/tournaments/${tournamentId}/complete`);
+  return data;
+};
+
+export const getTournamentProgressApi = async (tournamentId) => {
+  const { data } = await api.get(`/tournaments/${tournamentId}/progress`);
+  return data;
+};
+
+export const generateNextRoundApi = async (tournamentId) => {
+  const { data } = await api.post(`/tournaments/${tournamentId}/rounds/generate`);
+  return data;
+};
+
 // Rounds & Games
 export const getGamesByRoundApi = async (roundId) => {
   const { data } = await api.get(`/rounds/${roundId}/games`);
@@ -141,15 +214,40 @@ export const getRecentResultsApi = async () => {
   return data;
 };
 
-// Dashboard
+// Dashboards
 export const getDashboardApi = async () => {
   const { data } = await api.get('/dashboard');
   return data;
 };
 
+export const getMyDashboardApi = async () => {
+  const { data } = await api.get('/me/dashboard');
+  return data;
+};
+
 // Admin
-export const getAdminUsersApi = async () => {
-  const { data } = await api.get('/admin/users');
+export const getAdminUsersApi = async (params = {}) => {
+  const { data } = await api.get('/admin/users', { params });
+  return data;
+};
+
+export const getAdminUserByIdApi = async (id) => {
+  const { data } = await api.get(`/admin/users/${id}`);
+  return data;
+};
+
+export const updateAdminUserApi = async (id, userData) => {
+  const { data } = await api.put(`/admin/users/${id}`, userData);
+  return data;
+};
+
+export const approveAdminUserApi = async (userId, body = {}) => {
+  const { data } = await api.post(`/admin/users/${userId}/approve`, body);
+  return data;
+};
+
+export const rejectAdminUserApi = async (userId, body = {}) => {
+  const { data } = await api.post(`/admin/users/${userId}/reject`, body);
   return data;
 };
 
@@ -166,33 +264,7 @@ export const updateAdminUserStatusApi = async (userId, status) => {
   return data;
 };
 
-export const approveAdminOrganizerApi = async (userId) => {
-  const { data } = await api.post(`/admin/users/${userId}/approve`);
-  return data;
-};
-
 export const getAuditLogApi = async (params = {}) => {
   const { data } = await api.get('/admin/audit-log', { params });
   return data;
 };
-
-export const startTournamentApi = async (tournamentId) => {
-  const { data } = await api.post(`/tournaments/${tournamentId}/start`);
-  return data;
-};
-
-export const completeTournamentApi = async (tournamentId) => {
-  const { data } = await api.post(`/tournaments/${tournamentId}/complete`);
-  return data;
-};
-
-export const getTournamentProgressApi = async (tournamentId) => {
-  const { data } = await api.get(`/tournaments/${tournamentId}/progress`);
-  return data;
-};
-
-export const generateNextRoundApi = async (tournamentId) => {
-  const { data } = await api.post(`/tournaments/${tournamentId}/rounds/generate`);
-  return data;
-};
-

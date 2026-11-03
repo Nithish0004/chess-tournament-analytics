@@ -1,516 +1,887 @@
-import React, { useState } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { GoogleLogin } from '@react-oauth/google';
 import {
-  Trophy,
-  BarChart2,
-  TrendingUp,
   User,
-  ShieldCheck,
   Mail,
   Lock,
-  Globe,
-  Calendar,
-  Building,
-  Phone,
-  ArrowRight,
-  CheckCircle2,
   Eye,
-  EyeOff
+  EyeOff,
+  Check,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  RotateCw,
+  ArrowRight,
+  ShieldCheck,
+  AtSign
 } from 'lucide-react';
-import { registerApi, verifyEmailApi } from '../api';
+import {
+  registerApi,
+  checkUsernameApi,
+  checkEmailApi,
+  verifyEmailApi,
+  resendVerificationApi,
+  googleAuthApi
+} from '../api';
+import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { CountrySelect } from '../components/CountrySelect';
+import { Logo } from '../components/Logo';
 
 export const Register = () => {
-  const [searchParams] = useSearchParams();
-  const initialRole = searchParams.get('role') === 'ORGANIZER' ? 'ORGANIZER' : 'PLAYER';
-
-  const [role, setRole] = useState(initialRole);
+  // Form fields
   const [fullName, setFullName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [selectedCountry, setSelectedCountry] = useState(null);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [country, setCountry] = useState('');
-  const [dateOfBirth, setDateOfBirth] = useState('');
-  const [organization, setOrganization] = useState('');
-  const [phone, setPhone] = useState('');
-  const [acceptTerms, setAcceptTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Real-time username validation state
+  const [usernameStatus, setUsernameStatus] = useState({
+    checking: false,
+    available: null,
+    message: ''
+  });
+
+  // Real-time email validation state
+  const [emailStatus, setEmailStatus] = useState({
+    checking: false,
+    available: null,
+    message: ''
+  });
+
+  // Submission & Post-registration state
   const [loading, setLoading] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [registeredSuccess, setRegisteredSuccess] = useState(false);
-  const [manualToken, setManualToken] = useState('');
-  const [verifying, setVerifying] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [registeredToken, setRegisteredToken] = useState('');
+  const [verifyingToken, setVerifyingToken] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resending, setResending] = useState(false);
 
   const { showToast } = useToast();
+  const { setAuthSession } = useAuth();
   const navigate = useNavigate();
 
-  // Password criteria helper
-  const hasMinLength = password.length >= 8;
-  const hasUpperCase = /[A-Z]/.test(password);
-  const hasLowerCase = /[a-z]/.test(password);
-  const hasDigit = /[0-9]/.test(password);
-  const isPasswordValid = hasMinLength && hasUpperCase && hasLowerCase && hasDigit;
+  // Cooldown ticker for resend
+  useEffect(() => {
+    let timer;
+    if (resendCooldown > 0) {
+      timer = setTimeout(() => setResendCooldown((prev) => prev - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
 
+  // Debounced username availability check
+  useEffect(() => {
+    const trimmed = username.trim();
+    if (!trimmed) {
+      setUsernameStatus({ checking: false, available: null, message: '' });
+      return;
+    }
+
+    if (trimmed.length < 3 || trimmed.length > 20) {
+      setUsernameStatus({
+        checking: false,
+        available: false,
+        message: 'Must be 3-20 characters'
+      });
+      return;
+    }
+
+    if (!/^[A-Za-z0-9_]+$/.test(trimmed)) {
+      setUsernameStatus({
+        checking: false,
+        available: false,
+        message: 'Letters, numbers, and underscores only'
+      });
+      return;
+    }
+
+    setUsernameStatus((prev) => ({ ...prev, checking: true }));
+    const timer = setTimeout(async () => {
+      try {
+        const res = await checkUsernameApi(trimmed);
+        if (res.available) {
+          setUsernameStatus({
+            checking: false,
+            available: true,
+            message: 'Username available'
+          });
+        } else {
+          setUsernameStatus({
+            checking: false,
+            available: false,
+            message: res.error || 'Username is already taken'
+          });
+        }
+      } catch (err) {
+        setUsernameStatus({
+          checking: false,
+          available: null,
+          message: ''
+        });
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [username]);
+
+  // Debounced email availability check
+  useEffect(() => {
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed) {
+      setEmailStatus({ checking: false, available: null, message: '' });
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setEmailStatus({
+        checking: false,
+        available: false,
+        message: 'Invalid email format'
+      });
+      return;
+    }
+
+    setEmailStatus((prev) => ({ ...prev, checking: true }));
+    const timer = setTimeout(async () => {
+      try {
+        const res = await checkEmailApi(trimmed);
+        if (res.available) {
+          setEmailStatus({
+            checking: false,
+            available: true,
+            message: 'Email available'
+          });
+        } else {
+          setEmailStatus({
+            checking: false,
+            available: false,
+            message: res.error || 'Email already registered'
+          });
+        }
+      } catch (err) {
+        setEmailStatus({
+          checking: false,
+          available: null,
+          message: ''
+        });
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [email]);
+
+  // Password criteria & strength calculations
+  const hasMinLength = password.length >= 8;
+  const hasUpper = /[A-Z]/.test(password);
+  const hasLower = /[a-z]/.test(password);
+  const hasDigit = /[0-9]/.test(password);
+  const hasSpecial = /[^A-Za-z0-9]/.test(password);
+  const isPasswordStrong = hasMinLength && hasUpper && hasLower && hasDigit;
+
+  const getStrengthScore = () => {
+    let score = 0;
+    if (hasMinLength) score++;
+    if (hasUpper) score++;
+    if (hasLower) score++;
+    if (hasDigit) score++;
+    if (hasSpecial) score++;
+    return score;
+  };
+
+  const strengthScore = getStrengthScore();
+  const getStrengthInfo = () => {
+    if (!password) return { label: '', color: 'bg-zinc-700', width: '0%' };
+    if (strengthScore <= 2) return { label: 'Weak', color: 'bg-rose-500', width: '33%' };
+    if (strengthScore <= 4) return { label: 'Good', color: 'bg-amber-400', width: '66%' };
+    return { label: 'Strong', color: 'bg-emerald-400', width: '100%' };
+  };
+
+  const strength = getStrengthInfo();
+  const passwordsMatch = confirmPassword && password === confirmPassword;
+  const passwordsMismatch = confirmPassword && password !== confirmPassword;
+
+  // Form submission handler
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitError('');
 
-    if (!isPasswordValid) {
-      showToast('Password must be 8+ chars with uppercase, lowercase, and a number', 'error');
+    if (!fullName.trim()) {
+      setSubmitError('Please enter your full name');
+      return;
+    }
+
+    const cleanUsername = username.trim();
+    if (!cleanUsername || cleanUsername.length < 3 || cleanUsername.length > 20) {
+      setSubmitError('Username must be 3-20 characters long');
+      return;
+    }
+
+    if (!/^[A-Za-z0-9_]{3,20}$/.test(cleanUsername)) {
+      setSubmitError('Username may only contain letters, numbers, and underscores');
+      return;
+    }
+
+    if (usernameStatus.available === false) {
+      setSubmitError(usernameStatus.message || 'This username is already taken');
+      return;
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setSubmitError('Please enter a valid email address');
+      return;
+    }
+
+    if (emailStatus.available === false) {
+      setSubmitError(emailStatus.message || 'This email address is already registered');
+      return;
+    }
+
+    if (!selectedCountry?.code) {
+      setSubmitError('Please select your country');
+      return;
+    }
+
+    if (!isPasswordStrong) {
+      setSubmitError('Password must be at least 8 characters and include uppercase, lowercase, and numbers');
       return;
     }
 
     if (password !== confirmPassword) {
-      showToast('Passwords do not match', 'error');
-      return;
-    }
-
-    if (!acceptTerms) {
-      showToast('Please accept the Terms of Service to proceed', 'error');
+      setSubmitError('Passwords do not match');
       return;
     }
 
     setLoading(true);
     try {
       const payload = {
-        role,
+        role: 'PLAYER',
         full_name: fullName.trim(),
-        email: email.trim().toLowerCase(),
+        username: cleanUsername,
+        email: cleanEmail,
         password,
         confirm_password: confirmPassword,
+        country: selectedCountry.name,
+        country_code: selectedCountry.code,
+        date_of_birth: '2000-01-01',
+        gender: 'UNDISCLOSED',
+        experience_level: 'BEGINNER',
         accept_terms: true
       };
 
-      if (role === 'PLAYER') {
-        payload.country = country.trim() || null;
-        payload.date_of_birth = dateOfBirth || null;
-      } else {
-        payload.organization = organization.trim() || null;
-        payload.phone = phone.trim() || null;
-      }
-
       const res = await registerApi(payload);
-      showToast(res.message || 'Registration submitted! Check your email.', 'success');
+      showToast('Account created successfully! Check your inbox.', 'success');
+      setRegisteredEmail(cleanEmail);
+      setRegisteredToken(res.verification_token || '');
       setRegisteredSuccess(true);
+      setResendCooldown(60);
     } catch (err) {
-      showToast(err.userMessage || 'Registration failed', 'error');
+      const errMessage = err.response?.data?.error || err.userMessage || 'Registration failed. Please check your details.';
+      setSubmitError(errMessage);
+      showToast(errMessage, 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleManualVerify = async (e) => {
-    e.preventDefault();
-    if (!manualToken.trim()) return;
-
-    setVerifying(true);
+  // Instant verification in development / test mode
+  const handleInstantVerify = async () => {
+    if (!registeredToken) return;
+    setVerifyingToken(true);
     try {
-      const res = await verifyEmailApi(manualToken.trim());
-      showToast(res.message || 'Email verified successfully!', 'success');
-      navigate(`/login?role=${role}`);
+      await verifyEmailApi(registeredToken);
+      showToast('Email verified successfully! You can now log in.', 'success');
+      navigate('/login?verified=true');
     } catch (err) {
-      showToast(err.userMessage || 'Invalid or expired token', 'error');
+      showToast(err.userMessage || 'Verification failed. Please use the link sent to your email.', 'error');
     } finally {
-      setVerifying(false);
+      setVerifyingToken(false);
+    }
+  };
+
+  const handleResendEmail = async () => {
+    if (resendCooldown > 0 || resending || !registeredEmail) return;
+    setResending(true);
+    try {
+      await resendVerificationApi(registeredEmail);
+      showToast('Verification email resent! Please check your inbox.', 'success');
+      setResendCooldown(60);
+    } catch (err) {
+      showToast(err.userMessage || 'Failed to resend verification link', 'error');
+    } finally {
+      setResending(false);
+    }
+  };
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    if (!credentialResponse?.credential) {
+      showToast('Google ID token was not received', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await googleAuthApi({
+        id_token: credentialResponse.credential,
+        role: 'PLAYER'
+      });
+      const resolvedUser = data.user || {
+        user_id: data.user_id,
+        email: data.email,
+        username: data.username,
+        full_name: data.full_name,
+        role: data.role,
+        status: data.status,
+        approval_status: data.approval_status,
+        approval_note: data.approval_note,
+        permissions: data.permissions
+      };
+      setAuthSession(data.token, resolvedUser);
+      showToast(`Welcome to Chess Magic, ${resolvedUser.full_name || resolvedUser.email}!`, 'success');
+
+      if (data.profile_complete === false) {
+        navigate('/complete-profile');
+      } else {
+        navigate('/');
+      }
+    } catch (err) {
+      showToast(err.userMessage || 'Google sign-in failed', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen w-full flex flex-col lg:flex-row bg-[#F4F7FB]">
-      {/* Left Panel: Dark Navy with Subtle Chess-Board CSS Pattern */}
-      <div
-        className="lg:w-5/12 p-8 sm:p-12 lg:p-16 flex flex-col justify-between relative overflow-hidden text-white"
-        style={{
-          background: 'linear-gradient(135deg, #0B1A33 0%, #12274A 100%)'
-        }}
-      >
-        {/* Subtle CSS Chessboard Pattern Overlay */}
-        <div
-          className="absolute inset-0 opacity-[0.04] pointer-events-none"
-          style={{
-            backgroundImage: `
-              linear-gradient(45deg, #ffffff 25%, transparent 25%),
-              linear-gradient(-45deg, #ffffff 25%, transparent 25%),
-              linear-gradient(45deg, transparent 75%, #ffffff 75%),
-              linear-gradient(-45deg, transparent 75%, #ffffff 75%)
-            `,
-            backgroundSize: '48px 48px',
-            backgroundPosition: '0 0, 0 24px, 24px -24px, -24px 0'
-          }}
-        />
+    <div className="min-h-screen w-full bg-[#0d0d0d] text-white flex items-center justify-center p-4 sm:p-6 lg:p-8 relative selection:bg-white/20 selection:text-white">
+      {/* Background Subtle Gradient */}
+      <div className="fixed inset-0 pointer-events-none opacity-40 bg-[radial-gradient(circle_at_top,_var(--tw-gradient-stops))] from-[#222222] via-[#111111] to-[#0a0a0a]" />
 
-        {/* Brand Header */}
-        <div className="relative z-10 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center">
-            <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 text-white">
-              <path d="M19 22H5v-2h14v2zM17.5 10c-.3 0-.6.1-.8.2-.5-.8-1.4-1.4-2.4-1.6.4-.6.7-1.4.7-2.3 0-2.2-1.8-4-4-4-.4 0-.8.1-1.2.2C9.5 2.2 9 2 8.5 2 7.1 2 6 3.1 6 4.5c0 .3.1.6.2.9C5.5 6 5 6.9 5 8c0 1.9 1.3 3.5 3.1 3.9-.1.3-.1.7-.1 1.1 0 1.2.4 2.3 1.1 3.2L8 18h10l-1.5-6.2c.6-.5 1-1.1 1-1.8z" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="text-xl font-black tracking-tight text-white">ChessTourn</h2>
-            <p className="text-xs text-slate-400 font-medium">Tournament Management &amp; Analytics</p>
-          </div>
-        </div>
+      {/* Main Two-Column Card Container */}
+      <div className="relative z-10 w-full max-w-5xl rounded-3xl bg-[#141414] border border-[#242424] shadow-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-12">
+        {/* Left Column: Decorative Chess Knight Panel */}
+        <div className="lg:col-span-5 bg-[#0e0e0e] border-b lg:border-b-0 lg:border-r border-[#222222]/80 p-8 sm:p-10 flex flex-col justify-between relative overflow-hidden">
+          {/* Subtle diagonal pinstripes */}
+          <div
+            className="absolute inset-0 opacity-[0.03] pointer-events-none"
+            style={{
+              backgroundImage: 'repeating-linear-gradient(45deg, #ffffff 0, #ffffff 1px, transparent 0, transparent 24px)'
+            }}
+          />
 
-        {/* Hero Copy & Benefits */}
-        <div className="relative z-10 my-8 max-w-lg space-y-6">
-          <div className="space-y-2">
-            <span className="inline-block py-1 px-3 rounded-full bg-blue-500/20 text-blue-300 text-xs font-bold tracking-wide border border-blue-400/30">
-              {role === 'PLAYER' ? 'Player Registration' : 'Tournament Manager Application'}
-            </span>
-            <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-white leading-tight">
-              Join the official <br />
-              <span className="text-blue-400">Chess Tournament</span> network
-            </h1>
-            <p className="text-sm text-slate-300 font-medium leading-relaxed">
-              {role === 'PLAYER'
-                ? 'Compete in official tournaments, climb the leaderboards, and get AI-powered match insights.'
-                : 'Manage pairings, submit round results, and orchestrate sanctioned FIDE/Swiss events.'}
-            </p>
-          </div>
+          <div className="relative z-10">
+            {/* Brand Logo */}
+            <Logo variant="horizontal" size="md" linkTo="/" className="mb-6" />
 
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center gap-3.5 p-3 rounded-xl bg-white/5 border border-white/10">
-              <div className="w-9 h-9 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
-                <Trophy className="w-4 h-4" />
-              </div>
-              <p className="text-xs text-slate-300 font-medium">
-                Official atomic Elo rating adjustments after every match
+            {/* Header Titles */}
+            <div className="space-y-2 mb-6">
+              <h1 className="font-condensed text-3xl sm:text-4xl font-black uppercase tracking-tight text-white leading-tight">
+                CREATE YOUR <br />
+                ACCOUNT
+              </h1>
+              <p className="text-zinc-400 text-xs sm:text-sm font-normal leading-relaxed">
+                Join tournaments, track your rating and grow as a player.
               </p>
             </div>
 
-            <div className="flex items-center gap-3.5 p-3 rounded-xl bg-white/5 border border-white/10">
-              <div className="w-9 h-9 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
-                <BarChart2 className="w-4 h-4" />
+            {/* 3D Metallic Knight Image */}
+            <div className="my-4 flex items-center justify-center">
+              <img
+                src="/images/chess-knight-dark.png"
+                alt="Chess Knight Metallic 3D"
+                className="max-h-[220px] sm:max-h-[260px] w-auto object-contain drop-shadow-[0_15px_30px_rgba(0,0,0,0.85)] filter contrast-[1.05]"
+                onError={(e) => {
+                  e.currentTarget.src = '/images/chess-knight-dark.jpg';
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Interactive Checklist matching reference UI */}
+          <div className="relative z-10 pt-4 border-t border-[#222222] space-y-2.5">
+            <div className="flex items-center gap-2.5 text-xs">
+              <div
+                className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[10px] ${
+                  usernameStatus.available === true
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                    : 'bg-[#222222] text-zinc-500'
+                }`}
+              >
+                ✓
               </div>
-              <p className="text-xs text-slate-300 font-medium">
-                Live round-robin and Swiss tournament standings &amp; upsets
-              </p>
+              <span
+                className={
+                  usernameStatus.available === true
+                    ? 'text-zinc-200 font-medium'
+                    : 'text-zinc-500'
+                }
+              >
+                Unique username
+              </span>
             </div>
 
-            <div className="flex items-center gap-3.5 p-3 rounded-xl bg-white/5 border border-white/10">
-              <div className="w-9 h-9 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
-                <TrendingUp className="w-4 h-4" />
+            <div className="flex items-center gap-2.5 text-xs">
+              <div
+                className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[10px] ${
+                  emailStatus.available === true
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                    : 'bg-[#222222] text-zinc-500'
+                }`}
+              >
+                ✓
               </div>
-              <p className="text-xs text-slate-300 font-medium">
-                Predictive analytics and historical performance graphs
-              </p>
+              <span
+                className={
+                  emailStatus.available === true
+                    ? 'text-zinc-200 font-medium'
+                    : 'text-zinc-500'
+                }
+              >
+                Unique email
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2.5 text-xs">
+              <div
+                className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[10px] ${
+                  username.trim().length >= 3 && username.trim().length <= 20
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                    : 'bg-[#222222] text-zinc-500'
+                }`}
+              >
+                ✓
+              </div>
+              <span
+                className={
+                  username.trim().length >= 3 && username.trim().length <= 20
+                    ? 'text-zinc-200 font-medium'
+                    : 'text-zinc-500'
+                }
+              >
+                3–20 characters
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2.5 text-xs">
+              <div
+                className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[10px] ${
+                  isPasswordStrong
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                    : 'bg-[#222222] text-zinc-500'
+                }`}
+              >
+                ✓
+              </div>
+              <span
+                className={
+                  isPasswordStrong
+                    ? 'text-zinc-200 font-medium'
+                    : 'text-zinc-500'
+                }
+              >
+                Use a strong password
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="relative z-10 text-xs text-slate-400 pt-4 border-t border-white/10 font-medium">
-          &copy; 2026 ChessTourn Platform. Secure Tournament Administration.
-        </div>
-      </div>
-
-      {/* Right Panel: Clean Card with Form */}
-      <div className="lg:w-7/12 flex items-center justify-center p-6 sm:p-10 lg:p-12 overflow-y-auto">
-        <div className="w-full max-w-xl bg-white rounded-3xl border border-slate-200/90 p-8 sm:p-10 shadow-xl">
+        {/* Right Column: Registration Form Card */}
+        <div className="lg:col-span-7 p-6 sm:p-10 lg:p-12 flex flex-col justify-between bg-[#141414]">
           {registeredSuccess ? (
             /* Post-Registration Success View */
-            <div className="text-center py-6 space-y-6">
-              <div className="w-16 h-16 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-3xl flex items-center justify-center mx-auto shadow-xs">
-                <CheckCircle2 className="w-8 h-8" />
+            <div className="my-auto py-6 text-center space-y-6">
+              <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto shadow-lg">
+                <CheckCircle2 className="w-9 h-9" />
               </div>
+
               <div className="space-y-2">
-                <h2 className="text-2xl font-black text-slate-900 tracking-tight">Check Your Inbox</h2>
-                <p className="text-sm text-slate-600 max-w-md mx-auto">
-                  A verification link was dispatched to <strong className="text-slate-900">{email}</strong>.
-                  {role === 'ORGANIZER' && (
-                    <span className="block mt-1 text-amber-600 font-medium text-xs">
-                      Note: Once verified, an administrator will approve your organizer account.
-                    </span>
-                  )}
-                </p>
-                <p className="text-xs text-slate-400 bg-slate-50 border border-slate-200 p-2.5 rounded-xl max-w-md mx-auto">
-                  💡 In local development console mode, the full verification link is printed directly to your server terminal.
+                <h2 className="font-condensed text-3xl font-black uppercase tracking-tight text-white">
+                  Account Created Successfully!
+                </h2>
+                <p className="text-zinc-400 text-xs sm:text-sm max-w-md mx-auto leading-relaxed">
+                  A verification link was dispatched to{' '}
+                  <strong className="text-white font-semibold">{registeredEmail}</strong>.
+                  Please verify your email address to activate your account.
                 </p>
               </div>
 
-              {/* Quick verification token paste helper */}
-              <form onSubmit={handleManualVerify} className="max-w-md mx-auto space-y-3 pt-2">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 text-left">
-                  Paste Verification Token
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={manualToken}
-                    onChange={(e) => setManualToken(e.target.value)}
-                    placeholder="e.g. 914d1629a4ca..."
-                    className="flex-1 px-3.5 py-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  />
+              {/* Dev mode / Console instant verification button */}
+              {registeredToken && (
+                <div className="p-4 rounded-2xl bg-[#1c1c1c] border border-[#2d2d2d] max-w-md mx-auto space-y-3 text-left">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-300">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span>Quick Email Verification</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-400">
+                    Console mail mode detected. You can instantly verify your email with one click:
+                  </p>
                   <button
-                    type="submit"
-                    disabled={verifying || !manualToken.trim()}
-                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors disabled:opacity-50"
+                    type="button"
+                    onClick={handleInstantVerify}
+                    disabled={verifyingToken}
+                    className="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2"
                   >
-                    {verifying ? 'Verifying...' : 'Verify Now'}
+                    {verifyingToken ? (
+                      <RotateCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <span>Verify &amp; Proceed to Login</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </>
+                    )}
                   </button>
                 </div>
-              </form>
+              )}
 
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-center gap-3">
-                <Link
-                  to={`/login?role=${role}`}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors"
+              {/* Resend verification button */}
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={handleResendEmail}
+                  disabled={resendCooldown > 0 || resending}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-zinc-400 hover:text-white bg-[#1a1a1a] hover:bg-[#222222] border border-[#2c2c2c] rounded-xl transition-all disabled:opacity-50"
                 >
-                  Proceed to Login <ArrowRight className="w-3.5 h-3.5" />
+                  <RotateCw className={`w-3.5 h-3.5 ${resending ? 'animate-spin' : ''}`} />
+                  <span>
+                    {resendCooldown > 0
+                      ? `Resend email in ${resendCooldown}s`
+                      : resending
+                      ? 'Dispatching email...'
+                      : 'Resend Verification Email'}
+                  </span>
+                </button>
+              </div>
+
+              {/* Back to sign in */}
+              <div className="pt-4 border-t border-[#222222]">
+                <Link
+                  to="/login"
+                  className="inline-flex items-center gap-2 py-3 px-6 rounded-xl bg-white hover:bg-zinc-200 text-[#111111] font-bold text-xs uppercase tracking-wider transition-all"
+                >
+                  <span>Go to Login</span>
+                  <ArrowRight className="w-4 h-4" />
                 </Link>
               </div>
             </div>
           ) : (
-            /* Registration Form View */
+            /* Registration Form */
             <div>
-              {/* Header */}
-              <div className="text-center mb-6">
-                <h2 className="text-2xl font-black text-slate-900 tracking-tight">Create an Account</h2>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium">
-                  Select your role below to configure your account credentials
+              {/* Form Title & Notice */}
+              <div className="mb-6">
+                <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+                  Player Registration
+                </h2>
+                <p className="text-xs text-zinc-400 mt-1">
+                  Create your tournament profile to join official tournaments
                 </p>
               </div>
 
-              {/* Segmented Role Switcher: User (Player) vs Tournament Manager */}
-              <div className="grid grid-cols-2 gap-3 p-1.5 bg-slate-100 rounded-2xl mb-6">
-                <button
-                  type="button"
-                  onClick={() => setRole('PLAYER')}
-                  className={`flex items-center justify-center gap-2.5 py-3 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                    role === 'PLAYER'
-                      ? 'bg-white text-blue-600 shadow-sm border border-slate-200/80'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <User className="w-4 h-4" />
-                  <span>User / Competitor</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setRole('ORGANIZER')}
-                  className={`flex items-center justify-center gap-2.5 py-3 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                    role === 'ORGANIZER'
-                      ? 'bg-white text-blue-600 shadow-sm border border-slate-200/80'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  <span>Tournament Manager</span>
-                </button>
-              </div>
+              {/* Error Alert */}
+              {submitError && (
+                <div className="mb-5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span className="font-medium leading-relaxed">{submitError}</span>
+                </div>
+              )}
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                {/* Full Name & Email */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                      Full Name *
-                    </label>
-                    <div className="relative">
-                      <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      <input
-                        type="text"
-                        value={fullName}
-                        onChange={(e) => setFullName(e.target.value)}
-                        placeholder={role === 'PLAYER' ? 'e.g. Magnus Carlsen' : 'e.g. Chief Arbiter'}
-                        required
-                        className="w-full pl-10 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
-                      />
+                {/* 1. Full Name */}
+                <div>
+                  <label className="block text-xs font-medium text-zinc-300 mb-1.5" htmlFor="reg-fullname">
+                    Full Name <span className="text-rose-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                      <User className="w-4 h-4" />
                     </div>
+                    <input
+                      id="reg-fullname"
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="e.g. Magnus Carlsen"
+                      autoComplete="name"
+                      required
+                      className="w-full pl-10 pr-4 py-2.5 bg-[#161616] border border-[#2a2a2a] rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 transition-all font-sans"
+                    />
                   </div>
+                </div>
 
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                      Email Address *
+                {/* 2. Username (3-20 chars) with Real-Time Availability Feedback */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-medium text-zinc-300" htmlFor="reg-username">
+                      Username (3–20 characters) <span className="text-rose-400">*</span>
                     </label>
-                    <div className="relative">
-                      <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="you@example.com"
-                        required
-                        className="w-full pl-10 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
-                      />
+                    {/* Inline feedback */}
+                    {usernameStatus.checking ? (
+                      <span className="text-[11px] text-zinc-400 flex items-center gap-1">
+                        <RotateCw className="w-3 h-3 animate-spin" /> Checking...
+                      </span>
+                    ) : usernameStatus.available === true ? (
+                      <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
+                        <Check className="w-3 h-3" /> {usernameStatus.message}
+                      </span>
+                    ) : usernameStatus.available === false ? (
+                      <span className="text-[11px] text-rose-400 font-medium flex items-center gap-1">
+                        <XCircle className="w-3 h-3" /> {usernameStatus.message}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                      <AtSign className="w-4 h-4" />
+                    </div>
+                    <input
+                      id="reg-username"
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="e.g. grandmaster_99"
+                      autoComplete="username"
+                      required
+                      maxLength={20}
+                      className={`w-full pl-10 pr-10 py-2.5 bg-[#161616] border rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:ring-1 transition-all font-sans ${
+                        usernameStatus.available === true
+                          ? 'border-emerald-500/50 focus:border-emerald-500 focus:ring-emerald-500/20'
+                          : usernameStatus.available === false
+                          ? 'border-rose-500/50 focus:border-rose-500 focus:ring-rose-500/20'
+                          : 'border-[#2a2a2a] focus:border-white/40 focus:ring-white/20'
+                      }`}
+                    />
+                    <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none">
+                      {usernameStatus.checking && (
+                        <RotateCw className="w-4 h-4 text-zinc-500 animate-spin" />
+                      )}
+                      {usernameStatus.available === true && (
+                        <Check className="w-4 h-4 text-emerald-400" />
+                      )}
+                      {usernameStatus.available === false && (
+                        <XCircle className="w-4 h-4 text-rose-400" />
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* Role Specific Fields */}
-                {role === 'PLAYER' ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                        Country
-                      </label>
-                      <div className="relative">
-                        <Globe className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <input
-                          type="text"
-                          value={country}
-                          onChange={(e) => setCountry(e.target.value)}
-                          placeholder="e.g. Norway, India, USA"
-                          className="w-full pl-10 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
-                        />
-                      </div>
+                {/* 3. Email Address with Real-Time Availability Feedback */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-medium text-zinc-300" htmlFor="reg-email">
+                      Email Address <span className="text-rose-400">*</span>
+                    </label>
+                    {/* Inline feedback */}
+                    {emailStatus.checking ? (
+                      <span className="text-[11px] text-zinc-400 flex items-center gap-1">
+                        <RotateCw className="w-3 h-3 animate-spin" /> Checking...
+                      </span>
+                    ) : emailStatus.available === true ? (
+                      <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
+                        <Check className="w-3 h-3" /> {emailStatus.message}
+                      </span>
+                    ) : emailStatus.available === false ? (
+                      <span className="text-[11px] text-rose-400 font-medium flex items-center gap-1">
+                        <XCircle className="w-3 h-3" /> {emailStatus.message}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                      <Mail className="w-4 h-4" />
                     </div>
-
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                        Date of Birth
-                      </label>
-                      <div className="relative">
-                        <Calendar className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <input
-                          type="date"
-                          value={dateOfBirth}
-                          onChange={(e) => setDateOfBirth(e.target.value)}
-                          className="w-full pl-10 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
-                        />
-                      </div>
+                    <input
+                      id="reg-email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="player@example.com"
+                      autoComplete="email"
+                      required
+                      className={`w-full pl-10 pr-10 py-2.5 bg-[#161616] border rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:ring-1 transition-all font-sans ${
+                        emailStatus.available === true
+                          ? 'border-emerald-500/50 focus:border-emerald-500 focus:ring-emerald-500/20'
+                          : emailStatus.available === false
+                          ? 'border-rose-500/50 focus:border-rose-500 focus:ring-rose-500/20'
+                          : 'border-[#2a2a2a] focus:border-white/40 focus:ring-white/20'
+                      }`}
+                    />
+                    <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none">
+                      {emailStatus.checking && (
+                        <RotateCw className="w-4 h-4 text-zinc-500 animate-spin" />
+                      )}
+                      {emailStatus.available === true && (
+                        <Check className="w-4 h-4 text-emerald-400" />
+                      )}
+                      {emailStatus.available === false && (
+                        <XCircle className="w-4 h-4 text-rose-400" />
+                      )}
                     </div>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                        Organization / Club *
-                      </label>
-                      <div className="relative">
-                        <Building className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <input
-                          type="text"
-                          value={organization}
-                          onChange={(e) => setOrganization(e.target.value)}
-                          placeholder="e.g. FIDE / Metro Chess Club"
-                          required={role === 'ORGANIZER'}
-                          className="w-full pl-10 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
-                        />
-                      </div>
-                    </div>
+                </div>
 
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                        Contact Phone
-                      </label>
-                      <div className="relative">
-                        <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <input
-                          type="tel"
-                          value={phone}
-                          onChange={(e) => setPhone(e.target.value)}
-                          placeholder="+1 (555) 000-0000"
-                          className="w-full pl-10 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {/* 4. Country - Complete Searchable ISO 3166-1 Dropdown */}
+                <div>
+                  <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                    Country <span className="text-rose-400">*</span>
+                  </label>
+                  <CountrySelect
+                    value={selectedCountry?.code || ''}
+                    onChange={(country) => setSelectedCountry(country)}
+                    placeholder="Search and select your country..."
+                  />
+                </div>
 
-                {/* Password & Confirm Password */}
+                {/* 5. Password & 6. Confirm Password (Side by side on larger screens) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  {/* Password */}
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                      Password *
+                    <label className="block text-xs font-medium text-zinc-300 mb-1.5" htmlFor="reg-password">
+                      Password <span className="text-rose-400">*</span>
                     </label>
                     <div className="relative">
-                      <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                        <Lock className="w-4 h-4" />
+                      </div>
                       <input
+                        id="reg-password"
                         type={showPassword ? 'text' : 'password'}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••••••"
+                        placeholder="••••••••"
+                        autoComplete="new-password"
                         required
-                        className="w-full pl-10 pr-10 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
+                        className="w-full pl-10 pr-10 py-2.5 bg-[#161616] border border-[#2a2a2a] rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 transition-all font-sans"
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-zinc-300 transition-colors focus:outline-none"
                       >
                         {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
                   </div>
 
+                  {/* Confirm Password */}
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                      Confirm Password *
-                    </label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-medium text-zinc-300" htmlFor="reg-confirm-password">
+                        Confirm Password <span className="text-rose-400">*</span>
+                      </label>
+                      {passwordsMatch && (
+                        <span className="text-[11px] text-emerald-400 font-medium">Match</span>
+                      )}
+                      {passwordsMismatch && (
+                        <span className="text-[11px] text-rose-400 font-medium">Mismatch</span>
+                      )}
+                    </div>
                     <div className="relative">
-                      <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                        <Lock className="w-4 h-4" />
+                      </div>
                       <input
-                        type={showPassword ? 'text' : 'password'}
+                        id="reg-confirm-password"
+                        type={showConfirmPassword ? 'text' : 'password'}
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="••••••••••••"
+                        placeholder="••••••••"
+                        autoComplete="new-password"
                         required
-                        className="w-full pl-10 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
+                        className={`w-full pl-10 pr-10 py-2.5 bg-[#161616] border rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:ring-1 transition-all font-sans ${
+                          passwordsMatch
+                            ? 'border-emerald-500/50 focus:border-emerald-500 focus:ring-emerald-500/20'
+                            : passwordsMismatch
+                            ? 'border-rose-500/50 focus:border-rose-500 focus:ring-rose-500/20'
+                            : 'border-[#2a2a2a] focus:border-white/40 focus:ring-white/20'
+                        }`}
                       />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-zinc-300 transition-colors focus:outline-none"
+                      >
+                        {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
                     </div>
                   </div>
                 </div>
 
-                {/* Password Helper Pills */}
-                <div className="p-2.5 bg-slate-50 border border-slate-200/70 rounded-xl text-[11px] space-y-1 text-slate-500">
-                  <p className="font-semibold text-slate-700">Password requirements:</p>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <span className={hasMinLength ? 'text-emerald-600 font-bold' : ''}>
-                      {hasMinLength ? '✓' : '•'} 8+ characters
-                    </span>
-                    <span className={hasUpperCase ? 'text-emerald-600 font-bold' : ''}>
-                      {hasUpperCase ? '✓' : '•'} At least 1 uppercase
-                    </span>
-                    <span className={hasLowerCase ? 'text-emerald-600 font-bold' : ''}>
-                      {hasLowerCase ? '✓' : '•'} At least 1 lowercase
-                    </span>
-                    <span className={hasDigit ? 'text-emerald-600 font-bold' : ''}>
-                      {hasDigit ? '✓' : '•'} At least 1 number
+                {/* Password Strength Meter */}
+                {password && (
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                      <span>Password Strength</span>
+                      <span className={`font-semibold ${
+                        strength.label === 'Strong' ? 'text-emerald-400' :
+                        strength.label === 'Good' ? 'text-amber-400' : 'text-rose-400'
+                      }`}>
+                        {strength.label}
+                      </span>
+                    </div>
+                    <div className="w-full h-1.5 bg-[#222222] rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 rounded-full ${strength.color}`}
+                        style={{ width: strength.width }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Submit Button */}
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-3.5 px-4 rounded-xl bg-white hover:bg-zinc-200 text-[#111111] font-bold text-sm tracking-wide transition-all shadow-md active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {loading ? (
+                      <div className="w-4 h-4 border-2 border-zinc-900 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <span>Create Account</span>
+                    )}
+                  </button>
+                </div>
+              </form>
+
+              {/* Optional Google Registration */}
+              <div className="mt-5 space-y-3">
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-[#262626]"></div>
+                  </div>
+                  <div className="relative flex justify-center text-[11px] uppercase">
+                    <span className="bg-[#141414] px-3 text-zinc-500 font-semibold">
+                      Or sign up with
                     </span>
                   </div>
                 </div>
 
-                {/* Accept Terms Checkbox */}
-                <div className="flex items-start gap-2.5 pt-1">
-                  <input
-                    type="checkbox"
-                    id="terms"
-                    checked={acceptTerms}
-                    onChange={(e) => setAcceptTerms(e.target.checked)}
-                    required
-                    className="mt-1 w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
+                <div className="flex justify-center w-full">
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={() => showToast('Google sign-in was cancelled', 'error')}
+                    theme="filled_black"
+                    shape="rectangular"
+                    width="100%"
                   />
-                  <label htmlFor="terms" className="text-xs text-slate-600 leading-relaxed">
-                    I accept the <span className="font-bold text-slate-800">Tournament Rules &amp; Terms of Service</span>.
-                    {role === 'ORGANIZER' && ' I acknowledge that manager accounts require admin approval after verification.'}
-                  </label>
                 </div>
+              </div>
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full mt-2 py-3 px-4 bg-[#2563EB] hover:bg-blue-600 text-white font-bold rounded-xl shadow-md shadow-blue-600/20 transition-all flex items-center justify-center gap-2 text-sm disabled:opacity-50"
-                >
-                  {loading ? (
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <span>{role === 'PLAYER' ? 'Complete Player Registration' : 'Submit Manager Application'}</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-              </form>
-
-              {/* Link to login */}
-              <div className="mt-6 pt-5 border-t border-slate-100 text-center text-xs text-slate-500">
-                Already have an account?{' '}
+              {/* Already have an account link */}
+              <div className="pt-6 text-center text-xs text-zinc-400 font-medium border-t border-[#222222] mt-6">
+                <span>Already have an account? </span>
                 <Link
-                  to={`/login?role=${role}`}
-                  className="font-bold text-blue-600 hover:text-blue-700 hover:underline"
+                  to="/login"
+                  className="text-white font-bold hover:underline ml-1"
                 >
-                  Sign In to your account
+                  Login
                 </Link>
               </div>
             </div>

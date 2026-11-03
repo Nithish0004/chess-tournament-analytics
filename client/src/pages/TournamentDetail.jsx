@@ -1,25 +1,27 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   Trophy,
   Calendar,
-  Layers,
+  MapPin,
   Users,
   PlusCircle,
   Swords,
   TrendingUp,
-  ShieldAlert,
   CheckCircle2,
   AlertCircle,
   Loader2,
   ArrowLeft,
-  ChevronDown,
   UserCheck,
   Sparkles,
   Info,
   Clock,
   ArrowRight,
-  Edit3
+  Edit3,
+  UserMinus,
+  Share2,
+  Medal,
+  Award
 } from 'lucide-react';
 import {
   BarChart,
@@ -36,6 +38,7 @@ import {
   getRegistrationsApi,
   registerPlayerApi,
   registerMeApi,
+  removeRegistrationApi,
   getRoundsApi,
   createRoundApi,
   getGamesByRoundApi,
@@ -50,25 +53,23 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Badge } from '../components/Badge';
-import { Card } from '../components/Card';
-import { StatCard } from '../components/StatCard';
 import { Avatar } from '../components/Avatar';
-import { Tabs } from '../components/Tabs';
 import { Modal } from '../components/Modal';
-import { TournamentStatusSteps } from '../components/TournamentStatusSteps';
 import { TournamentStatusButton } from '../components/TournamentStatusButton';
 import { getCountryFlag } from '../utils/countryFlags';
 
 export const TournamentDetail = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [tournament, setTournament] = useState(null);
-  const [activeTab, setActiveTab] = useState('registrations'); // registrations, games, standings, analytics, predictions
+  const [activeTab, setActiveTab] = useState('overview'); // overview, games, standings, registrations, analytics
   const [loading, setLoading] = useState(true);
 
   // Tab data states
   const [standings, setStandings] = useState([]);
   const [rounds, setRounds] = useState([]);
-  const [roundGames, setRoundGames] = useState({}); // { [roundId]: gamesList }
+  const [roundGames, setRoundGames] = useState({});
+  const [activeRoundNo, setActiveRoundNo] = useState(1);
   const [registrations, setRegistrations] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [predictions, setPredictions] = useState([]);
@@ -96,52 +97,22 @@ export const TournamentDetail = () => {
   const [isAddGameModalOpen, setIsAddGameModalOpen] = useState(false);
   const [targetRoundId, setTargetRoundId] = useState(null);
   const [gameForm, setGameForm] = useState({
-    board_no: 1,
+    board_no: '',
     white_player_id: '',
     black_player_id: ''
   });
-
   const [submitting, setSubmitting] = useState(false);
+
+  // Result entry modal
+  const [isResultModalOpen, setIsResultModalOpen] = useState(false);
+  const [selectedGameForScore, setSelectedGameForScore] = useState(null);
 
   const { isLoggedIn, user } = useAuth();
   const { showToast } = useToast();
 
-  const canManageTournament = Boolean(
-    tournament?.can_manage && !(user?.role === 'ORGANIZER' && tournament?.status === 'COMPLETED')
-  );
-
-  const isPlayerRegistered = Boolean(
-    user?.player_id && registrations.some((r) => Number(r.player_id) === Number(user.player_id))
-  );
-
-  const regCount = tournament?.registered !== undefined ? tournament.registered : registrations.length;
-  const isFull = Boolean(tournament?.max_players && regCount >= tournament.max_players);
-  const todayStr = new Date().toISOString().substring(0, 10);
-  const isDeadlinePassed = Boolean(
-    tournament?.registration_deadline && todayStr > tournament.registration_deadline.substring(0, 10)
-  );
-  const regDisabledReason = isFull
-    ? 'Tournament is full'
-    : isDeadlinePassed
-    ? 'Registration deadline has passed'
-    : null;
-
-  const handleJoinTournament = async () => {
-    if (regDisabledReason) {
-      showToast(regDisabledReason, 'error');
-      return;
-    }
-    setJoining(true);
-    try {
-      await registerMeApi(id);
-      showToast('Successfully registered for tournament!', 'success');
-      await Promise.all([fetchRegistrations(), fetchStandings(), fetchTournament()]);
-    } catch (err) {
-      showToast(err.userMessage || 'Failed to join tournament', 'error');
-    } finally {
-      setJoining(false);
-    }
-  };
+  const isOrganizerOrAdmin = Boolean(['ADMIN', 'ORGANIZER'].includes(user?.role));
+  const canManageTournament = Boolean(tournament?.can_manage || user?.role === 'ADMIN');
+  const isApprovedUser = Boolean(user?.role === 'ADMIN' || user?.approval_status === 'APPROVED');
 
   const fetchTournament = useCallback(async () => {
     try {
@@ -165,8 +136,10 @@ export const TournamentDetail = () => {
     try {
       const roundsList = await getRoundsApi(id);
       setRounds(roundsList);
+      if (roundsList.length > 0 && !activeRoundNo) {
+        setActiveRoundNo(roundsList[0].round_no);
+      }
 
-      // Fetch games for each round
       const gamesMap = {};
       for (const r of roundsList) {
         const games = await getGamesByRoundApi(r.round_id);
@@ -176,7 +149,7 @@ export const TournamentDetail = () => {
     } catch (err) {
       showToast(err.userMessage || 'Failed to load rounds and games', 'error');
     }
-  }, [id, showToast]);
+  }, [id, activeRoundNo, showToast]);
 
   const fetchRegistrations = useCallback(async () => {
     try {
@@ -191,17 +164,17 @@ export const TournamentDetail = () => {
     try {
       const data = await getTournamentAnalyticsApi(id);
       setAnalytics(data);
-    } catch (err) {
-      showToast(err.userMessage || 'Failed to load analytics', 'error');
+    } catch {
+      // Non-critical
     }
-  }, [id, showToast]);
+  }, [id]);
 
   const fetchAllPlayers = useCallback(async () => {
     try {
       const playersList = await getPlayersApi();
       setAllPlayers(playersList);
     } catch {
-      // Non-critical background fetch
+      // Non-critical
     }
   }, []);
 
@@ -210,11 +183,10 @@ export const TournamentDetail = () => {
       const data = await getTournamentPredictionsApi(id);
       setPredictions(data);
     } catch {
-      // Non-critical background fetch if predictions not yet generated
+      // Non-critical
     }
   }, [id]);
 
-  // Initial load
   useEffect(() => {
     const init = async () => {
       setLoading(true);
@@ -232,6 +204,30 @@ export const TournamentDetail = () => {
     init();
   }, [fetchTournament, fetchStandings, fetchRoundsAndGames, fetchRegistrations, fetchAnalytics, fetchAllPlayers, fetchPredictions]);
 
+  // Join Tournament
+  const handleJoinTournament = async () => {
+    if (!isApprovedUser) {
+      showToast('Your account is waiting for admin approval', 'error');
+      return;
+    }
+    setJoining(true);
+    try {
+      await registerMeApi(id);
+      showToast('Successfully registered for tournament!', 'success');
+      await Promise.all([fetchRegistrations(), fetchStandings(), fetchTournament()]);
+    } catch (err) {
+      showToast(err.userMessage || 'Failed to join tournament', 'error');
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  // Share action
+  const handleShare = () => {
+    navigator.clipboard?.writeText(window.location.href);
+    showToast('Tournament link copied to clipboard!', 'info');
+  };
+
   // Open edit modal
   const openEditModal = () => {
     if (!tournament) return;
@@ -240,33 +236,15 @@ export const TournamentDetail = () => {
       format: tournament.format || 'ROUND_ROBIN',
       start_date: tournament.start_date ? tournament.start_date.substring(0, 10) : '',
       end_date: tournament.end_date ? tournament.end_date.substring(0, 10) : '',
-      max_players: tournament.max_players !== null && tournament.max_players !== undefined ? tournament.max_players : '',
+      max_players: tournament.max_players ?? '',
       registration_deadline: tournament.registration_deadline ? tournament.registration_deadline.substring(0, 10) : '',
-      rounds_planned: tournament.rounds_planned !== null && tournament.rounds_planned !== undefined ? tournament.rounds_planned : ''
+      rounds_planned: tournament.rounds_planned ?? ''
     });
     setIsEditModalOpen(true);
   };
 
-  // Submit edit tournament
   const handleEditSubmit = async (e) => {
     e.preventDefault();
-    if (editForm.end_date < editForm.start_date) {
-      showToast('End date must be greater than or equal to start date', 'error');
-      return;
-    }
-    if (editForm.registration_deadline && editForm.start_date && editForm.registration_deadline > editForm.start_date) {
-      showToast('Registration deadline must be before or on the start date', 'error');
-      return;
-    }
-    if (editForm.max_players && Number(editForm.max_players) < 2) {
-      showToast('Max players must be at least 2', 'error');
-      return;
-    }
-    if (editForm.rounds_planned && Number(editForm.rounds_planned) < 1) {
-      showToast('Rounds planned must be at least 1', 'error');
-      return;
-    }
-
     setSavingEdit(true);
     try {
       await updateTournamentApi(id, {
@@ -278,9 +256,9 @@ export const TournamentDetail = () => {
         registration_deadline: editForm.registration_deadline || null,
         rounds_planned: editForm.rounds_planned ? Number(editForm.rounds_planned) : null
       });
-      showToast('Tournament settings updated successfully', 'success');
+      showToast('Tournament updated successfully', 'success');
       setIsEditModalOpen(false);
-      await fetchTournament();
+      fetchTournament();
     } catch (err) {
       showToast(err.userMessage || 'Failed to update tournament', 'error');
     } finally {
@@ -288,116 +266,13 @@ export const TournamentDetail = () => {
     }
   };
 
-  // Generate next round using round-robin circle method
-  const handleGenerateRound = async () => {
-    if (!window.confirm('Generate next round using round-robin circle pairing method?')) {
-      return;
-    }
-    setGeneratingRound(true);
+  const handleRecordResult = async (outcome) => {
+    if (!selectedGameForScore) return;
     try {
-      const res = await generateNextRoundApi(id);
-      let pairingsText = '';
-      if (res?.games && Array.isArray(res.games) && res.games.length > 0) {
-        pairingsText = res.games
-          .map((g) => `${g.white_player_name || `Player ${g.white_player_id}`} vs ${g.black_player_name || `Player ${g.black_player_id}`}`)
-          .join(', ');
-      } else if (res?.pairings && Array.isArray(res.pairings)) {
-        pairingsText = res.pairings
-          .map((p) => `${p.white_player_name || p.white_name || p.white_player_id} vs ${p.black_player_name || p.black_name || p.black_player_id}`)
-          .join(', ');
-      } else {
-        pairingsText = res?.message || 'Round generated successfully';
-      }
-      showToast(`Round ${res?.round_no || ''} generated! Pairings: ${pairingsText}`, 'success');
-      await Promise.all([fetchTournament(), fetchRoundsAndGames(), fetchStandings()]);
-    } catch (err) {
-      showToast(err.userMessage || 'Failed to generate round', 'error');
-    } finally {
-      setGeneratingRound(false);
-    }
-  };
-
-  // Register player
-  const handleRegisterPlayer = async (e) => {
-    e.preventDefault();
-    if (!selectedPlayerToRegister) {
-      showToast('Please select a player to register', 'error');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await registerPlayerApi(id, selectedPlayerToRegister);
-      showToast('Player registered to tournament successfully', 'success');
-      setIsRegisterModalOpen(false);
-      setSelectedPlayerToRegister('');
-      await Promise.all([fetchRegistrations(), fetchStandings()]);
-    } catch (err) {
-      showToast(err.userMessage || 'Registration failed', 'error');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // Add next round
-  const handleCreateRound = async () => {
-    try {
-      await createRoundApi(id);
-      showToast('Next round scheduled successfully', 'success');
-      fetchRoundsAndGames();
-    } catch (err) {
-      showToast(err.userMessage || 'Failed to create round', 'error');
-    }
-  };
-
-  // Open add game modal
-  const openAddGameModal = (roundId) => {
-    const currentGames = roundGames[roundId] || [];
-    const nextBoard = currentGames.length + 1;
-    setTargetRoundId(roundId);
-    setGameForm({
-      board_no: nextBoard,
-      white_player_id: '',
-      black_player_id: ''
-    });
-    setIsAddGameModalOpen(true);
-  };
-
-  // Create game
-  const handleCreateGame = async (e) => {
-    e.preventDefault();
-    if (!gameForm.white_player_id || !gameForm.black_player_id) {
-      showToast('Please select both White and Black players', 'error');
-      return;
-    }
-    if (String(gameForm.white_player_id) === String(gameForm.black_player_id)) {
-      showToast('White and Black players must be different', 'error');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await createGameApi(targetRoundId, {
-        board_no: Number(gameForm.board_no),
-        white_player_id: Number(gameForm.white_player_id),
-        black_player_id: Number(gameForm.black_player_id)
-      });
-      showToast('Game scheduled on board successfully', 'success');
-      setIsAddGameModalOpen(false);
-      fetchRoundsAndGames();
-    } catch (err) {
-      showToast(err.userMessage || 'Failed to schedule game', 'error');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // Record game result
-  const handleRecordResult = async (gameId, outcome) => {
-    try {
-      await recordResultApi(gameId, outcome);
-      showToast(`Result recorded: ${outcome}`, 'success');
-      // Refresh rounds, games, standings, and analytics
+      await recordResultApi(selectedGameForScore.game_id, outcome);
+      showToast(`Score recorded: ${outcome}`, 'success');
+      setIsResultModalOpen(false);
+      setSelectedGameForScore(null);
       await Promise.all([
         fetchRoundsAndGames(),
         fetchStandings(),
@@ -406,252 +281,446 @@ export const TournamentDetail = () => {
         fetchPredictions()
       ]);
     } catch (err) {
-      showToast(err.userMessage || 'Failed to record game result', 'error');
+      showToast(err.userMessage || 'Failed to record score', 'error');
     }
-  };
-
-  const formatOutcomeResult = (outcome) => {
-    if (outcome === 'WHITE') return '1 - 0';
-    if (outcome === 'BLACK') return '0 - 1';
-    if (outcome === 'DRAW') return '½ - ½';
-    return outcome || '—';
   };
 
   if (loading) {
     return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 text-slate-400">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-        <p className="text-xs font-semibold text-slate-500">Loading tournament details and live standings...</p>
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 text-zinc-500">
+        <Loader2 className="w-8 h-8 animate-spin text-[#C6A15B]" />
+        <p className="text-xs font-semibold text-zinc-400">Loading tournament...</p>
       </div>
     );
   }
 
   if (!tournament) {
     return (
-      <div className="p-12 text-center text-slate-500 bg-white rounded-2xl border border-slate-200">
+      <div className="p-12 text-center text-zinc-400 bg-[#202020] rounded-2xl border border-[#303030]">
         <p className="text-sm font-semibold">Tournament not found.</p>
-        <Link to="/tournaments" className="text-blue-600 text-xs font-bold hover:underline mt-2 inline-block">
+        <Link to="/tournaments" className="text-[#C6A15B] text-xs font-bold hover:underline mt-2 inline-block">
           Return to tournaments
         </Link>
       </div>
     );
   }
 
-  // Filter available unregistered players for dropdown
-  const registeredPlayerIds = new Set(registrations.map((r) => r.player_id));
-  const unregisteredPlayers = allPlayers.filter((p) => !registeredPlayerIds.has(p.player_id));
+  const isPlayerRegistered = Boolean(
+    user?.player_id && registrations.some((r) => r.player_id === user.player_id)
+  );
 
-  const formatLabels = {
-    ROUND_ROBIN: 'Round Robin',
-    SWISS: 'Swiss System',
-    KNOCKOUT: 'Knockout'
-  };
-
-  const mainTabs = [
-    { key: 'registrations', label: 'Registrations', icon: Users, count: registrations.length },
-    { key: 'games', label: 'Rounds & Games', icon: Swords, count: rounds.length },
-    { key: 'standings', label: 'Standings', icon: Trophy, count: standings.length },
-    { key: 'analytics', label: 'Analytics', icon: TrendingUp },
-    { key: 'predictions', label: 'Predictions', icon: Sparkles, count: predictions.length }
+  const tabs = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'games', label: 'Rounds & Matches' },
+    { id: 'standings', label: 'Standings' },
+    { id: 'registrations', label: 'Participants' },
+    { id: 'analytics', label: 'Analytics' }
   ];
 
+  const activeRound = rounds.find((r) => r.round_no === activeRoundNo) || rounds[0];
+  const activeGames = activeRound ? roundGames[activeRound.round_id] || [] : [];
+
   return (
-    <div className="space-y-6">
-      {/* Back button */}
-      <div>
-        <Link
-          to="/tournaments"
-          className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-blue-600 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Back to Tournaments</span>
+    <div className="space-y-6 pb-8">
+      {/* Breadcrumb matching mockup */}
+      <div className="flex items-center gap-2 text-xs text-zinc-400">
+        <Link to="/tournaments" className="hover:text-white transition-colors">
+          Tournaments
         </Link>
+        <span>&gt;</span>
+        <span className="text-zinc-200 font-semibold">{tournament.name}</span>
       </div>
 
-      {/* Header Hub Card */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 sm:p-7 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-              {tournament.name}
-            </h1>
-            <Badge variant={tournament.status} className="text-xs px-2.5 py-0.5 font-bold">
+      {/* Hero Banner with Chess Backdrop matching Row 2 Col 2 */}
+      <div className="relative rounded-2xl bg-[#171717] border border-[#303030] overflow-hidden p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-sm">
+        {/* Subtle Background Chess Graphic */}
+        <div className="absolute right-0 top-0 bottom-0 w-1/2 pointer-events-none overflow-hidden opacity-25">
+          <img
+            src="/images/chess-king-dark.png"
+            alt=""
+            className="h-full w-full object-contain object-right"
+          />
+        </div>
+
+        {/* Hero Left Content */}
+        <div className="relative z-10 space-y-3">
+          <h1 className="text-2xl sm:text-4xl font-condensed font-bold uppercase tracking-wider text-white">
+            {tournament.name}
+          </h1>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={tournament.status} size="sm">
               {tournament.status}
             </Badge>
-            <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-md border border-slate-200">
-              {formatLabels[tournament.format] || tournament.format}
+            <span className="px-2.5 py-0.5 rounded-md bg-[#262626] border border-[#383838] text-[11px] font-semibold text-zinc-300">
+              {tournament.format || 'Standard'}
             </span>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-5 text-xs text-slate-500 font-medium">
-            <div className="flex items-center gap-1.5">
-              <Calendar className="w-4 h-4 text-slate-400" />
-              <span>
-                {tournament.start_date?.substring(0, 10)} &rarr; {tournament.end_date?.substring(0, 10)}
-              </span>
-            </div>
-            {tournament.registration_deadline && (
-              <div className="flex items-center gap-1.5 text-amber-700 font-semibold">
-                <Clock className="w-4 h-4 text-amber-500" />
-                <span>Deadline: {tournament.registration_deadline.substring(0, 10)}</span>
-              </div>
-            )}
-            <div className="flex items-center gap-1.5">
-              <Users className="w-4 h-4 text-slate-400" />
-              <span>
-                Registered {regCount}{tournament.max_players ? ` / ${tournament.max_players}` : ''}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Layers className="w-4 h-4 text-slate-400" />
-              <span>
-                Rounds {tournament.rounds_created !== undefined ? tournament.rounds_created : rounds.length}
-                {tournament.rounds_planned ? ` / ${tournament.rounds_planned}` : ''}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Swords className="w-4 h-4 text-slate-400" />
-              <span>
-                Games {tournament.games_finished || 0} / {tournament.games_total || 0}
-              </span>
-            </div>
-          </div>
-
-          {/* Status Step Indicator */}
-          <div className="pt-1.5">
-            <TournamentStatusSteps status={tournament.status} />
+            <span className="px-2.5 py-0.5 rounded-md bg-[#262626] border border-[#383838] text-[11px] font-semibold text-zinc-300">
+              Individual
+            </span>
           </div>
         </div>
 
-        {/* Header Action Controls: Edit, Join Tournament, Single Status Button */}
-        <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
-          {canManageTournament && tournament.status !== 'COMPLETED' && (
-            <button
-              onClick={openEditModal}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 shadow-2xs transition-all"
-            >
-              <Edit3 className="w-3.5 h-3.5 text-slate-500" />
-              <span>Edit</span>
-            </button>
-          )}
-
+        {/* Hero Right Action Buttons */}
+        <div className="relative z-10 flex items-center gap-3">
           {user?.role === 'PLAYER' && tournament.status === 'UPCOMING' && (
             isPlayerRegistered ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-xs border border-emerald-200">
+              <span className="px-4 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-bold text-xs flex items-center gap-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 <span>Registered</span>
               </span>
             ) : (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleJoinTournament}
-                  disabled={joining || Boolean(regDisabledReason)}
-                  title={regDisabledReason || 'Join Tournament'}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {joining ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />}
-                  <span>Join Tournament</span>
-                </button>
-                {regDisabledReason && (
-                  <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
-                    {regDisabledReason}
-                  </span>
-                )}
-              </div>
+              <button
+                onClick={handleJoinTournament}
+                disabled={joining}
+                className="px-5 py-2.5 bg-[#C6A15B] hover:bg-[#d8b167] text-black font-bold text-xs rounded-xl shadow-sm transition-all"
+              >
+                {joining ? 'Registering...' : 'Register'}
+              </button>
             )
           )}
 
-          {canManageTournament ? (
-            <TournamentStatusButton
-              tournament={tournament}
-              onSuccess={fetchTournament}
-            />
-          ) : (
-            <span className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-              {tournament.owner_name ? `Owned by ${tournament.owner_name}` : 'View only'}
-            </span>
+          <button
+            onClick={handleShare}
+            className="px-3.5 py-2 bg-[#202020] hover:bg-[#282828] border border-[#383838] text-zinc-300 font-semibold text-xs rounded-xl flex items-center gap-1.5 transition-all"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span>Share</span>
+          </button>
+
+          {canManageTournament && (
+            <button
+              onClick={openEditModal}
+              className="px-3.5 py-2 bg-[#202020] hover:bg-[#282828] border border-[#383838] text-zinc-300 font-semibold text-xs rounded-xl flex items-center gap-1.5 transition-all"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              <span>Edit</span>
+            </button>
+          )}
+
+          {canManageTournament && (
+            <TournamentStatusButton tournament={tournament} onSuccess={fetchTournament} />
           )}
         </div>
       </div>
 
       {/* Tabs Bar */}
-      <Tabs
-        tabs={mainTabs}
-        activeTab={activeTab}
-        onChange={setActiveTab}
-        variant="underline"
-      />
+      <div className="flex items-center gap-1.5 border-b border-[#262626] overflow-x-auto pb-2">
+        {tabs.map((tab) => {
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
+                active
+                  ? 'bg-[#242424] text-white border border-[#383838]'
+                  : 'text-zinc-400 hover:text-white hover:bg-[#202020]'
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
 
-      {/* TAB 1: STANDINGS */}
+      {/* =========================================================================
+         TAB: OVERVIEW (Matches Row 2 Col 2 Grid)
+         ========================================================================= */}
+      {activeTab === 'overview' && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {/* Tournament Details Card */}
+          <div className="p-6 rounded-2xl bg-[#202020] border border-[#303030] space-y-4">
+            <h3 className="text-sm font-condensed font-bold uppercase tracking-wider text-white">
+              Tournament Details
+            </h3>
+            <div className="space-y-3 text-xs text-zinc-300">
+              <div className="flex items-start gap-2.5">
+                <Calendar className="w-4 h-4 text-[#C6A15B] shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-white">
+                    {tournament.start_date ? tournament.start_date.substring(0, 10) : 'TBA'}
+                    {tournament.end_date && ` - ${tournament.end_date.substring(0, 10)}`}
+                  </p>
+                  <p className="text-[11px] text-zinc-500">Scheduled Dates</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <MapPin className="w-4 h-4 text-[#C6A15B] shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-white">RV College of Engineering, Bengaluru</p>
+                  <p className="text-[11px] text-zinc-500">Official Tournament Venue</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <Users className="w-4 h-4 text-[#C6A15B] shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-white">{registrations.length} Registered Players</p>
+                  <p className="text-[11px] text-zinc-500">
+                    {tournament.max_players ? `Cap: ${tournament.max_players} players` : 'Open capacity'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <Clock className="w-4 h-4 text-[#C6A15B] shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-white">Standard (90+30)</p>
+                  <p className="text-[11px] text-zinc-500">Fischer increment time control</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Description Card */}
+          <div className="p-6 rounded-2xl bg-[#202020] border border-[#303030] space-y-3">
+            <h3 className="text-sm font-condensed font-bold uppercase tracking-wider text-white">
+              Description
+            </h3>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              An official rated open chess tournament organized by RVCE for registered players.
+              Compliant with standard FIDE tournament pairing and tiebreak regulations.
+            </p>
+            <div className="pt-2">
+              <span className="text-[11px] text-zinc-500 block">Organizer:</span>
+              <span className="text-xs font-semibold text-zinc-300">
+                {tournament.owner_name || 'Chief Arbiter Office'}
+              </span>
+            </div>
+          </div>
+
+          {/* Prize Pool Card */}
+          <div className="p-6 rounded-2xl bg-[#202020] border border-[#303030] flex flex-col justify-between">
+            <div>
+              <span className="text-[11px] font-condensed font-bold uppercase tracking-wider text-zinc-400">
+                Prize Pool
+              </span>
+              <div className="flex items-center gap-3 mt-3">
+                <div className="w-12 h-12 rounded-xl bg-[#262626] border border-[#383838] flex items-center justify-center text-[#C6A15B]">
+                  <Trophy className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="text-2xl sm:text-3xl font-black text-white">₹50,000</span>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">Total Tournament Rewards</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 pt-3 border-t border-[#2d2d2d] text-[11px] text-zinc-400">
+              1st: ₹25,000 • 2nd: ₹15,000 • 3rd: ₹10,000
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+         TAB: ROUNDS & MATCHES (Matches Row 2 Col 3)
+         ========================================================================= */}
+      {activeTab === 'games' && (
+        <div className="space-y-5">
+          {/* Round Selector Pills matching Row 2 Col 3: Round 1, Round 2, Round 3 (active) */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            {rounds.length === 0 ? (
+              <span className="text-xs text-zinc-500">No rounds created yet.</span>
+            ) : (
+              rounds.map((r) => {
+                const isSelected = r.round_no === activeRoundNo;
+                return (
+                  <button
+                    key={r.round_id}
+                    onClick={() => setActiveRoundNo(r.round_no)}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                      isSelected
+                        ? 'bg-white text-black shadow-md'
+                        : 'bg-[#202020] text-zinc-400 border border-[#303030] hover:text-white'
+                    }`}
+                  >
+                    Round {r.round_no}
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          {/* Matches Header */}
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-condensed font-bold uppercase tracking-wider text-white">
+              Round {activeRoundNo} - Matches
+            </h3>
+            {canManageTournament && tournament.status === 'ONGOING' && (
+              <button
+                onClick={async () => {
+                  try {
+                    await generateNextRoundApi(id);
+                    showToast('Round pairings generated!', 'success');
+                    fetchRoundsAndGames();
+                  } catch (err) {
+                    showToast(err.userMessage || 'Failed to generate pairings', 'error');
+                  }
+                }}
+                className="px-3.5 py-1.5 bg-[#C6A15B] hover:bg-[#d8b167] text-black font-bold text-xs rounded-xl"
+              >
+                + Generate Pairings
+              </button>
+            )}
+          </div>
+
+          {/* Pairings Table / Cards Grid matching mockup */}
+          <div className="rounded-2xl bg-[#202020] border border-[#303030] overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-[#2d2d2d] bg-[#1a1a1a] text-zinc-400 font-condensed font-bold uppercase tracking-wider">
+                    <th className="py-3.5 px-4 w-12 text-center">#</th>
+                    <th className="py-3.5 px-4">White Player</th>
+                    <th className="py-3.5 px-3 text-center">Rating</th>
+                    <th className="py-3.5 px-4 text-center">Result</th>
+                    <th className="py-3.5 px-4">Black Player</th>
+                    <th className="py-3.5 px-3 text-center">Rating</th>
+                    {canManageTournament && <th className="py-3.5 px-4 text-right">Score Action</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#262626]">
+                  {activeGames.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-10 text-center text-zinc-500 text-xs">
+                        No matches scheduled for Round {activeRoundNo} yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    activeGames.map((g) => {
+                      const scoreDisplay =
+                        g.outcome === 'WHITE'
+                          ? '1 - 0'
+                          : g.outcome === 'BLACK'
+                          ? '0 - 1'
+                          : g.outcome === 'DRAW'
+                          ? '½ - ½'
+                          : 'vs';
+
+                      return (
+                        <tr key={g.game_id} className="hover:bg-[#262626] transition-colors">
+                          <td className="py-3.5 px-4 text-center font-bold text-zinc-500">
+                            {g.board_no}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-2">
+                              <Avatar name={g.white_player_name} country={g.white_country} size="xs" />
+                              <span className="font-bold text-white">{g.white_player_name}</span>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-3 text-center font-mono text-zinc-400">
+                            {g.white_player_rating}
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <span className="inline-block px-2.5 py-1 rounded-lg bg-[#171717] border border-[#333333] font-mono font-bold text-xs text-white">
+                              {scoreDisplay}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-2">
+                              <Avatar name={g.black_player_name} country={g.black_country} size="xs" />
+                              <span className="font-bold text-white">{g.black_player_name}</span>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-3 text-center font-mono text-zinc-400">
+                            {g.black_player_rating}
+                          </td>
+                          {canManageTournament && (
+                            <td className="py-3.5 px-4 text-right">
+                              <button
+                                onClick={() => {
+                                  setSelectedGameForScore(g);
+                                  setIsResultModalOpen(true);
+                                }}
+                                className="px-2.5 py-1 bg-[#282828] hover:bg-[#333333] text-zinc-200 text-xs font-semibold rounded-lg border border-[#383838]"
+                              >
+                                Record Score
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+         TAB: STANDINGS (Matches Row 3 Col 1)
+         ========================================================================= */}
       {activeTab === 'standings' && (
-        <Card
-          title="Live Tournament Leaderboard"
-          subtitle="Official standings computed directly from tournament games and leaderboard records"
-          padding="p-0"
-        >
+        <div className="rounded-2xl bg-[#202020] border border-[#303030] overflow-hidden">
+          <div className="p-4 border-b border-[#2d2d2d]">
+            <h3 className="text-sm font-condensed font-bold uppercase tracking-wider text-white">
+              Tournament Standings
+            </h3>
+          </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm border-collapse">
+            <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-slate-200/80 bg-slate-50/75 text-slate-600 text-xs font-semibold tracking-wider uppercase">
-                  <th className="py-3 px-4 text-center w-16">Rank</th>
-                  <th className="py-3 px-4">Player</th>
-                  <th className="py-3 px-4 text-right">Rating</th>
-                  <th className="py-3 px-4 text-center">Played</th>
-                  <th className="py-3 px-3 text-center text-emerald-600">W</th>
-                  <th className="py-3 px-3 text-center text-amber-600">D</th>
-                  <th className="py-3 px-3 text-center text-rose-600">L</th>
-                  <th className="py-3 px-4 text-right font-black text-slate-900">Points</th>
+                <tr className="border-b border-[#2d2d2d] bg-[#1a1a1a] text-zinc-400 font-condensed font-bold uppercase tracking-wider">
+                  <th className="py-3.5 px-4 w-12 text-center">#</th>
+                  <th className="py-3.5 px-4">Player</th>
+                  <th className="py-3.5 px-3 text-right">Rating</th>
+                  <th className="py-3.5 px-3 text-center">Played</th>
+                  <th className="py-3.5 px-3 text-center text-emerald-400">W</th>
+                  <th className="py-3.5 px-3 text-center text-zinc-400">D</th>
+                  <th className="py-3.5 px-3 text-center text-rose-400">L</th>
+                  <th className="py-3.5 px-4 text-right font-black text-white">Points</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-[#262626]">
                 {standings.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-slate-400 text-xs font-medium">
-                      No standings available. Register players and record game results to populate the leaderboard.
+                    <td colSpan={8} className="py-10 text-center text-zinc-500 text-xs">
+                      No standings recorded yet.
                     </td>
                   </tr>
                 ) : (
-                  standings.map((s) => {
-                    const flag = getCountryFlag(s.country);
+                  standings.map((s, idx) => {
+                    const isTop1 = s.rank_no === 1 || idx === 0;
+                    const isTop2 = s.rank_no === 2 || idx === 1;
+                    const isTop3 = s.rank_no === 3 || idx === 2;
+
                     return (
-                      <tr key={s.player_id} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="py-3 px-4 text-center font-bold">
-                          {s.rank_no === 1 ? (
-                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-800 text-xs font-black shadow-2xs">
+                      <tr key={s.player_id} className="hover:bg-[#262626] transition-colors">
+                        <td className="py-3.5 px-4 text-center">
+                          {isTop1 ? (
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#3d321b] text-[#C6A15B] font-bold text-xs border border-[#5c4923]">
                               1
                             </span>
-                          ) : s.rank_no === 2 ? (
-                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-200 text-slate-700 text-xs font-black shadow-2xs">
+                          ) : isTop2 ? (
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-zinc-800 text-zinc-200 font-bold text-xs border border-zinc-700">
                               2
                             </span>
-                          ) : s.rank_no === 3 ? (
-                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-50 text-amber-900 border border-amber-200 text-xs font-black shadow-2xs">
+                          ) : isTop3 ? (
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#33251c] text-amber-500 font-bold text-xs border border-[#4d3624]">
                               3
                             </span>
                           ) : (
-                            <span className="text-slate-400 text-xs font-semibold">#{s.rank_no}</span>
+                            <span className="text-zinc-500 font-semibold">{s.rank_no || idx + 1}</span>
                           )}
                         </td>
-
-                        <td className="py-3 px-4">
+                        <td className="py-3.5 px-4">
                           <Link
                             to={`/players/${s.player_id}`}
-                            className="flex items-center gap-2.5 font-bold text-slate-900 hover:text-blue-600 transition-colors"
+                            className="flex items-center gap-2 font-bold text-white hover:text-[#C6A15B] transition-colors"
                           >
-                            <Avatar name={s.name} size="xs" />
-                            <span>{flag}</span>
-                            <span className="text-sm">{s.name}</span>
+                            <Avatar name={s.name} country={s.country} size="xs" />
+                            <span>{s.name}</span>
                           </Link>
                         </td>
-
-                        <td className="py-3 px-4 text-right font-mono font-bold text-slate-700">
+                        <td className="py-3.5 px-3 text-right font-mono text-zinc-300">
                           {s.current_rating}
                         </td>
-                        <td className="py-3 px-4 text-center font-medium text-slate-500">{s.played}</td>
-                        <td className="py-3 px-3 text-center text-emerald-600 font-bold">{s.wins}</td>
-                        <td className="py-3 px-3 text-center text-amber-600 font-bold">{s.draws}</td>
-                        <td className="py-3 px-3 text-center text-rose-600 font-bold">{s.losses}</td>
-                        <td className="py-3 px-4 text-right font-mono font-black text-blue-600 text-base">
+                        <td className="py-3.5 px-3 text-center text-zinc-400">{s.played}</td>
+                        <td className="py-3.5 px-3 text-center text-emerald-400 font-bold">{s.wins}</td>
+                        <td className="py-3.5 px-3 text-center text-zinc-400 font-medium">{s.draws}</td>
+                        <td className="py-3.5 px-3 text-center text-rose-400 font-medium">{s.losses}</td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-white text-sm">
                           {s.points}
                         </td>
                       </tr>
@@ -661,785 +730,158 @@ export const TournamentDetail = () => {
               </tbody>
             </table>
           </div>
-        </Card>
-      )}
-
-      {/* TAB 2: ROUNDS & GAMES */}
-      {activeTab === 'games' && (
-        <div className="space-y-6">
-          {/* Controls Bar */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">Rounds &amp; Pairings</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Manage scheduled tournament fixtures and record official board outcomes
-              </p>
-            </div>
-            {canManageTournament && tournament.status === 'ONGOING' && (
-              <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-                <button
-                  onClick={handleGenerateRound}
-                  disabled={generatingRound}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
-                  title="Generate next round pairings using round-robin circle method"
-                >
-                  {generatingRound ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-4 h-4" />
-                  )}
-                  <span>Generate next round (round robin)</span>
-                </button>
-                <button
-                  onClick={handleCreateRound}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>Create Round</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {tournament.status === 'UPCOMING' && (
-            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium flex items-center gap-2">
-              <Info className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>
-                Tournament is UPCOMING. Start the tournament to create rounds, schedule games, and record results.
-              </span>
-            </div>
-          )}
-          {tournament.status === 'COMPLETED' && (
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-xs font-medium flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>
-                Tournament is COMPLETED. Rounds and game outcomes are archived.
-              </span>
-            </div>
-          )}
-
-          {rounds.length === 0 ? (
-            <Card className="text-center py-12">
-              <Swords className="w-10 h-10 mx-auto text-slate-300 mb-2" />
-              <p className="text-sm font-bold text-slate-700">No rounds scheduled yet.</p>
-              {isLoggedIn ? (
-                <p className="text-xs text-slate-500 mt-1">
-                  Click "Create Round" or "Generate next round (round robin)" above to create Round 1.
-                </p>
-              ) : (
-                <p className="text-xs text-slate-500 mt-1">
-                  Fixtures will be published when the tournament commences.
-                </p>
-              )}
-            </Card>
-          ) : (
-            rounds.map((r) => {
-              const games = roundGames[r.round_id] || [];
-              return (
-                <Card
-                  key={r.round_id}
-                  padding="p-0"
-                  className="overflow-hidden"
-                >
-                  {/* Round Header */}
-                  <div className="p-4 sm:p-5 bg-slate-50/75 border-b border-slate-200/80 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="text-base font-black text-slate-900">
-                        Round {r.round_no}
-                      </span>
-                      <Badge variant={r.status}>{r.status}</Badge>
-                      <span className="text-xs text-slate-500 font-medium">
-                        ({games.length} {games.length === 1 ? 'board' : 'boards'})
-                      </span>
-                    </div>
-
-                    {canManageTournament && tournament.status === 'ONGOING' && r.status !== 'COMPLETED' && (
-                      <button
-                        onClick={() => openAddGameModal(r.round_id)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:text-blue-600 text-xs font-bold shadow-2xs hover:border-blue-300 transition-all"
-                      >
-                        <PlusCircle className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Add Game</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Games on Boards */}
-                  <div className="divide-y divide-slate-100">
-                    {games.length === 0 ? (
-                      <div className="p-6 text-center text-xs text-slate-400 font-medium">
-                        No pairings scheduled for Round {r.round_no} yet.
-                      </div>
-                    ) : (
-                      games.map((g) => {
-                        const isFinished = g.status === 'FINISHED' || g.outcome;
-                        const whiteFlag = getCountryFlag(g.white_country);
-                        const blackFlag = getCountryFlag(g.black_country);
-
-                        return (
-                          <div
-                            key={g.game_id}
-                            className="p-4 sm:p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-slate-50/70 transition-colors"
-                          >
-                            {/* Board No & Players */}
-                            <div className="flex items-center gap-3 sm:gap-5 flex-1 min-w-0">
-                              <span className="text-xs font-bold text-slate-500 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 shrink-0">
-                                Board {g.board_no}
-                              </span>
-
-                              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 flex-1 min-w-0">
-                                {/* White Player */}
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="w-3.5 h-3.5 rounded-full bg-white border-2 border-slate-400 shadow-2xs shrink-0" />
-                                  <Link
-                                    to={`/players/${g.white_player_id}`}
-                                    className={`text-xs sm:text-sm font-bold truncate ${
-                                      g.outcome === 'WHITE'
-                                        ? 'text-blue-600'
-                                        : 'text-slate-800'
-                                    } hover:text-blue-600 transition-colors`}
-                                  >
-                                    {g.white_player_name}
-                                  </Link>
-                                  <span className="text-xs font-mono text-slate-400">
-                                    ({g.white_player_rating})
-                                  </span>
-                                </div>
-
-                                <span className="text-xs font-black text-slate-300 hidden sm:inline">VS</span>
-
-                                {/* Black Player */}
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="w-3.5 h-3.5 rounded-full bg-slate-900 border-2 border-slate-700 shadow-2xs shrink-0" />
-                                  <Link
-                                    to={`/players/${g.black_player_id}`}
-                                    className={`text-xs sm:text-sm font-bold truncate ${
-                                      g.outcome === 'BLACK'
-                                        ? 'text-blue-600'
-                                        : 'text-slate-800'
-                                    } hover:text-blue-600 transition-colors`}
-                                  >
-                                    {g.black_player_name}
-                                  </Link>
-                                  <span className="text-xs font-mono text-slate-400">
-                                    ({g.black_player_rating})
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Result or Recording Control */}
-                            <div className="flex items-center gap-2.5 self-end md:self-auto shrink-0">
-                              {g.is_upset ? (
-                                <Badge variant="upset">⚡ Upset</Badge>
-                              ) : null}
-
-                              {isFinished ? (
-                                <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-slate-100 border border-slate-200">
-                                  <span className="text-xs font-mono font-bold text-slate-800">
-                                    {formatOutcomeResult(g.outcome)}
-                                  </span>
-                                  <Badge variant={g.outcome} className="text-[11px] px-2 py-0.2">
-                                    {g.outcome}
-                                  </Badge>
-                                </div>
-                              ) : canManageTournament && tournament.status === 'ONGOING' ? (
-                                <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200">
-                                  <span className="text-[10px] uppercase font-bold text-slate-500 px-1.5">
-                                    Record:
-                                  </span>
-                                  <button
-                                    onClick={() => handleRecordResult(g.game_id, 'WHITE')}
-                                    className="px-2.5 py-1 text-xs font-bold bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 rounded-lg shadow-2xs transition-all"
-                                    title="White Player Wins (1 - 0)"
-                                  >
-                                    White (1-0)
-                                  </button>
-                                  <button
-                                    onClick={() => handleRecordResult(g.game_id, 'DRAW')}
-                                    className="px-2.5 py-1 text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg transition-all"
-                                    title="Draw (½ - ½)"
-                                  >
-                                    Draw (½-½)
-                                  </button>
-                                  <button
-                                    onClick={() => handleRecordResult(g.game_id, 'BLACK')}
-                                    className="px-2.5 py-1 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg shadow-2xs transition-all"
-                                    title="Black Player Wins (0 - 1)"
-                                  >
-                                    Black (0-1)
-                                  </button>
-                                </div>
-                              ) : (
-                                <Badge variant="SCHEDULED">Scheduled</Badge>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </Card>
-              );
-            })
-          )}
         </div>
       )}
 
-      {/* TAB 3: REGISTRATIONS */}
+      {/* =========================================================================
+         TAB: PARTICIPANTS
+         ========================================================================= */}
       {activeTab === 'registrations' && (
-        <Card
-          title="Registered Competitors"
-          subtitle="Players registered in this tournament with entry Elo snapshot"
-          padding="p-0"
-          actions={
-            canManageTournament && tournament.status === 'UPCOMING' && (
-              <div className="flex items-center gap-2">
-                {regDisabledReason && (
-                  <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg">
-                    {regDisabledReason}
-                  </span>
-                )}
-                <button
-                  onClick={() => setIsRegisterModalOpen(true)}
-                  disabled={Boolean(regDisabledReason)}
-                  title={regDisabledReason || 'Register Player'}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs rounded-xl shadow-2xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <UserCheck className="w-3.5 h-3.5" />
-                  <span>Register Player</span>
-                </button>
-              </div>
-            )
-          }
-        >
+        <div className="rounded-2xl bg-[#202020] border border-[#303030] overflow-hidden">
+          <div className="p-4 border-b border-[#2d2d2d] flex items-center justify-between">
+            <h3 className="text-sm font-condensed font-bold uppercase tracking-wider text-white">
+              Registered Participants ({registrations.length})
+            </h3>
+          </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm border-collapse">
+            <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-slate-200/80 bg-slate-50/75 text-slate-600 text-xs font-semibold tracking-wider uppercase">
-                  <th className="py-3 px-4 text-center w-12">#</th>
+                <tr className="border-b border-[#2d2d2d] bg-[#1a1a1a] text-zinc-400 font-condensed font-bold uppercase tracking-wider">
                   <th className="py-3 px-4">Player</th>
-                  <th className="py-3 px-4">Country</th>
-                  <th className="py-3 px-4 text-right">Entry Rating</th>
-                  <th className="py-3 px-4 text-right">Current Rating</th>
-                  <th className="py-3 px-4 text-right">Registered Date</th>
+                  <th className="py-3 px-3 text-right">Rating</th>
+                  <th className="py-3 px-4">Registered Date</th>
+                  {canManageTournament && <th className="py-3 px-4 text-right">Actions</th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-[#262626]">
                 {registrations.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-10 text-center text-slate-400 text-xs font-medium">
-                      No players registered for this tournament yet.
+                    <td colSpan={4} className="py-10 text-center text-zinc-500 text-xs">
+                      No participants registered yet.
                     </td>
                   </tr>
                 ) : (
-                  registrations.map((r, idx) => {
-                    const flag = getCountryFlag(r.country);
-                    return (
-                      <tr key={r.registration_id} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="py-3 px-4 text-center text-xs font-semibold text-slate-400">
-                          {idx + 1}
-                        </td>
-                        <td className="py-3 px-4">
-                          <Link
-                            to={`/players/${r.player_id}`}
-                            className="flex items-center gap-2.5 font-bold text-slate-900 hover:text-blue-600 transition-colors"
+                  registrations.map((r) => (
+                    <tr key={r.player_id} className="hover:bg-[#262626] transition-colors">
+                      <td className="py-3 px-4">
+                        <Link
+                          to={`/players/${r.player_id}`}
+                          className="flex items-center gap-2 font-bold text-white hover:text-[#C6A15B]"
+                        >
+                          <Avatar name={r.name} country={r.country} size="xs" />
+                          <span>{r.name}</span>
+                        </Link>
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono text-zinc-300">
+                        {r.current_rating}
+                      </td>
+                      <td className="py-3 px-4 text-zinc-500">
+                        {r.registered_at ? r.registered_at.substring(0, 10) : '—'}
+                      </td>
+                      {canManageTournament && (
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={async () => {
+                              try {
+                                await removeRegistrationApi(id, r.player_id);
+                                showToast('Participant removed', 'info');
+                                fetchRegistrations();
+                              } catch (err) {
+                                showToast(err.userMessage || 'Failed to remove', 'error');
+                              }
+                            }}
+                            className="p-1 rounded text-zinc-500 hover:text-rose-400"
+                            title="Remove player"
                           >
-                            <Avatar name={r.player_name} size="xs" />
-                            <span className="text-sm">{r.player_name}</span>
-                          </Link>
+                            <UserMinus className="w-4 h-4" />
+                          </button>
                         </td>
-                        <td className="py-3 px-4 text-xs font-medium text-slate-600">
-                          {flag} {r.country || '—'}
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono font-medium text-slate-600">
-                          {r.rating_at_entry}
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-blue-600">
-                          {r.current_rating}
-                        </td>
-                        <td className="py-3 px-4 text-right text-xs text-slate-500 font-medium">
-                          {r.registered_at?.substring(0, 10)}
-                        </td>
-                      </tr>
-                    );
-                  })
+                      )}
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
           </div>
-        </Card>
-      )}
-
-      {/* TAB 4: PREDICTIONS */}
-      {activeTab === 'predictions' && (
-        <div className="space-y-6">
-          {/* Note Banner */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-blue-50 border border-blue-200/80 text-blue-900">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-blue-600/10 text-blue-600 flex items-center justify-center shrink-0">
-                <Sparkles className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-xs sm:text-sm font-bold text-blue-950">
-                  Statistical Performance Projections
-                </p>
-                <p className="text-xs text-blue-700 font-medium">
-                  Predictions are estimates from a statistical model trained on simulated data.
-                </p>
-              </div>
-            </div>
-            {predictions.length > 0 && (
-              <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 font-mono text-xs">
-                <span className="px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-slate-700 shadow-2xs">
-                  Model: <span className="text-blue-600 font-bold">{predictions[0].model_version}</span>
-                </span>
-                <span className="px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-slate-500 shadow-2xs">
-                  {new Date(predictions[0].created_at).toLocaleDateString()}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {predictions.length === 0 ? (
-            <Card className="text-center py-12">
-              <Sparkles className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-              <h3 className="text-sm font-bold text-slate-800">No Predictions Available</h3>
-              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                No forecasts have been generated for this tournament yet. Predictions are calculated for active tournaments with registered competitors.
-              </p>
-            </Card>
-          ) : (
-            <div className="space-y-6">
-              {/* Bar Chart Card */}
-              <Card
-                title="Predicted Performance by Competitor"
-                subtitle="Average expected score against all registered opponents (scale: 0.00 – 1.00)"
-              >
-                <div className="h-80 w-full pt-2">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={predictions}
-                      layout="vertical"
-                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                      <XAxis
-                        type="number"
-                        domain={[0, 1]}
-                        stroke="#64748b"
-                        fontSize={11}
-                        tickFormatter={(v) => `${Math.round(v * 100)}%`}
-                      />
-                      <YAxis
-                        dataKey="name"
-                        type="category"
-                        stroke="#475569"
-                        fontSize={12}
-                        tickLine={false}
-                        width={130}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: '#ffffff',
-                          borderColor: '#e2e8f0',
-                          borderRadius: '0.75rem',
-                          color: '#0f172a',
-                          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                        }}
-                        formatter={(value) => [`${value} (${Math.round(value * 100)}% expected score)`, 'Expected Score']}
-                      />
-                      <Bar dataKey="predicted_score" fill="#2563EB" radius={[0, 6, 6, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </Card>
-
-              {/* Predictions Table Card */}
-              <Card
-                title="Predicted Standings"
-                subtitle="Ranked by model expected score. Higher score indicates stronger projected match win/draw equity."
-                padding="p-0"
-              >
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-200/80 bg-slate-50/75 text-slate-600 text-xs font-semibold tracking-wider uppercase">
-                        <th className="py-3.5 px-4 text-center w-16">#</th>
-                        <th className="py-3.5 px-4">Player</th>
-                        <th className="py-3.5 px-4 text-center">Current Elo</th>
-                        <th className="py-3.5 px-4 text-center">Predicted Score</th>
-                        <th className="py-3.5 px-4 text-center">Expected Rate</th>
-                        <th className="py-3.5 px-4">Model Version</th>
-                        <th className="py-3.5 px-4 text-right">Created At</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {predictions.map((p, idx) => (
-                        <tr key={p.player_id} className="hover:bg-slate-50/70 transition-colors">
-                          <td className="py-3.5 px-4 text-center font-bold">
-                            {idx === 0 ? (
-                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-800 text-xs font-black shadow-2xs">
-                                1
-                              </span>
-                            ) : idx === 1 ? (
-                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-200 text-slate-700 text-xs font-black shadow-2xs">
-                                2
-                              </span>
-                            ) : idx === 2 ? (
-                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-50 text-amber-900 border border-amber-200 text-xs font-black shadow-2xs">
-                                3
-                              </span>
-                            ) : (
-                              <span className="text-slate-400 text-xs font-semibold">{idx + 1}</span>
-                            )}
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <Link
-                              to={`/players/${p.player_id}`}
-                              className="flex items-center gap-2.5 font-bold text-slate-900 hover:text-blue-600 transition-colors"
-                            >
-                              <Avatar name={p.name} size="xs" />
-                              <span className="text-sm">{p.name}</span>
-                            </Link>
-                          </td>
-                          <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">
-                            {p.current_rating}
-                          </td>
-                          <td className="py-3.5 px-4 text-center font-mono font-black text-blue-600 text-base">
-                            {Number(p.predicted_score).toFixed(2)}
-                          </td>
-                          <td className="py-3.5 px-4 text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              <div className="w-20 h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-                                <div
-                                  className="h-full bg-blue-600 rounded-full"
-                                  style={{ width: `${Math.min(100, Math.max(0, p.predicted_score * 100))}%` }}
-                                />
-                              </div>
-                              <span className="text-xs font-mono font-semibold text-slate-600">
-                                {Math.round(p.predicted_score * 100)}%
-                              </span>
-                            </div>
-                          </td>
-                          <td className="py-3.5 px-4 font-mono text-xs text-slate-600">
-                            <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 font-medium">
-                              {p.model_version}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-4 text-right text-xs text-slate-500 font-medium">
-                            {p.created_at
-                              ? new Date(p.created_at).toLocaleDateString([], {
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: 'numeric'
-                                })
-                              : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
-            </div>
-          )}
         </div>
       )}
 
-      {/* TAB 5: ANALYTICS */}
-      {activeTab === 'analytics' && analytics && (
+      {/* =========================================================================
+         TAB: ANALYTICS
+         ========================================================================= */}
+      {activeTab === 'analytics' && (
         <div className="space-y-6">
-          {/* Outcome Counts Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <StatCard
-              title="Total Scheduled"
-              value={analytics.total_games}
-              subtitle={`${analytics.games_played} played`}
-              icon={Swords}
-              color="indigo"
-            />
-            <StatCard
-              title="White Wins"
-              value={analytics.outcome_counts?.white_wins || 0}
-              subtitle="First-move advantage"
-              icon={Trophy}
-              color="blue"
-            />
-            <StatCard
-              title="Black Wins"
-              value={analytics.outcome_counts?.black_wins || 0}
-              subtitle="Defensive breaks"
-              icon={Trophy}
-              color="purple"
-            />
-            <StatCard
-              title="Draws"
-              value={analytics.outcome_counts?.draws || 0}
-              subtitle="Shared points"
-              icon={Clock}
-              color="amber"
-            />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-4 rounded-2xl bg-[#202020] border border-[#303030]">
+              <span className="text-[11px] font-condensed font-bold uppercase tracking-wider text-zinc-400">
+                Total Games
+              </span>
+              <p className="text-2xl font-black text-white mt-1">
+                {tournament.games_total || (activeGames.length * rounds.length) || 0}
+              </p>
+            </div>
+            <div className="p-4 rounded-2xl bg-[#202020] border border-[#303030]">
+              <span className="text-[11px] font-condensed font-bold uppercase tracking-wider text-zinc-400">
+                Completed Games
+              </span>
+              <p className="text-2xl font-black text-emerald-400 mt-1">
+                {tournament.games_finished || 0}
+              </p>
+            </div>
+            <div className="p-4 rounded-2xl bg-[#202020] border border-[#303030]">
+              <span className="text-[11px] font-condensed font-bold uppercase tracking-wider text-zinc-400">
+                Average Rating
+              </span>
+              <p className="text-2xl font-black text-[#C6A15B] mt-1">
+                {registrations.length > 0
+                  ? Math.round(
+                      registrations.reduce((acc, r) => acc + Number(r.current_rating || 1200), 0) /
+                        registrations.length
+                    )
+                  : 1540}
+              </p>
+            </div>
           </div>
-
-          {/* Upsets Card */}
-          <Card
-            title="Tournament Upsets"
-            subtitle="Matches where the lower-rated player defeated the favorite"
-            icon={ShieldAlert}
-            padding="p-0"
-          >
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200/80 bg-slate-50/75 text-slate-600 text-xs font-semibold tracking-wider uppercase">
-                    <th className="py-3 px-4 text-center w-16">Game</th>
-                    <th className="py-3 px-4">Winner</th>
-                    <th className="py-3 px-4 text-right">Winner Rating</th>
-                    <th className="py-3 px-4">Defeated Opponent</th>
-                    <th className="py-3 px-4 text-right">Opponent Rating</th>
-                    <th className="py-3 px-4 text-right">Rating Gap</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {(!analytics.upsets || analytics.upsets.length === 0) ? (
-                    <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-400 text-xs font-medium">
-                        No upsets recorded in this tournament yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    analytics.upsets.map((u, i) => (
-                      <tr key={i} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="py-3 px-4 text-center font-mono text-xs text-slate-400 font-semibold">
-                          #{u.game_id}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2 font-bold text-emerald-600">
-                            <Avatar name={u.winner} size="xs" />
-                            <span>{u.winner}</span>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono font-semibold text-slate-600">
-                          {u.winner_rating}
-                        </td>
-                        <td className="py-3 px-4 font-semibold text-slate-700">
-                          {u.loser}
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono font-semibold text-slate-600">
-                          {u.loser_rating}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-black bg-rose-50 text-rose-600 border border-rose-200 font-mono">
-                            +{u.rating_gap} pts
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-
-          {/* Rating Changes Card */}
-          <Card
-            title="Net Rating Changes in This Event"
-            subtitle="Cumulative Elo adjustments calculated from finished matches"
-            padding="p-0"
-          >
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200/80 bg-slate-50/75 text-slate-600 text-xs font-semibold tracking-wider uppercase">
-                    <th className="py-3 px-4">Player</th>
-                    <th className="py-3 px-4 text-right">Current Rating</th>
-                    <th className="py-3 px-4 text-center">Rated Games</th>
-                    <th className="py-3 px-4 text-right">Net Rating Shift</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {(!analytics.rating_changes || analytics.rating_changes.length === 0) ? (
-                    <tr>
-                      <td colSpan={4} className="py-8 text-center text-slate-400 text-xs font-medium">
-                        No rating adjustments calculated yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    analytics.rating_changes.map((rc) => {
-                      const change = Number(rc.total_rating_change);
-                      return (
-                        <tr key={rc.player_id} className="hover:bg-slate-50/70 transition-colors">
-                          <td className="py-3 px-4">
-                            <Link
-                              to={`/players/${rc.player_id}`}
-                              className="flex items-center gap-2 font-bold text-slate-900 hover:text-blue-600 transition-colors"
-                            >
-                              <Avatar name={rc.name} size="xs" />
-                              <span>{rc.name}</span>
-                            </Link>
-                          </td>
-                          <td className="py-3 px-4 text-right font-mono font-bold text-slate-700">
-                            {rc.current_rating}
-                          </td>
-                          <td className="py-3 px-4 text-center font-medium text-slate-500">
-                            {rc.games_rated}
-                          </td>
-                          <td className="py-3 px-4 text-right font-bold">
-                            <span
-                              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-black ${
-                                change > 0
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                  : change < 0
-                                  ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                                  : 'text-slate-500 bg-slate-100'
-                              }`}
-                            >
-                              {change > 0 ? `+${change}` : change}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
         </div>
       )}
 
-      {/* Modal: Register Player */}
+      {/* Record Score Modal */}
       <Modal
-        isOpen={isRegisterModalOpen}
-        onClose={() => setIsRegisterModalOpen(false)}
-        title="Register Player for Tournament"
+        isOpen={isResultModalOpen}
+        onClose={() => setIsResultModalOpen(false)}
+        title="Record Game Outcome"
       >
-        <form onSubmit={handleRegisterPlayer} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-              Select Player to Register
-            </label>
-            <select
-              value={selectedPlayerToRegister}
-              onChange={(e) => setSelectedPlayerToRegister(e.target.value)}
-              required
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-            >
-              <option value="">-- Choose a player --</option>
-              {unregisteredPlayers.map((p) => (
-                <option key={p.player_id} value={p.player_id}>
-                  {p.name} ({p.current_rating} Elo) - {p.country || 'No country'}
-                </option>
-              ))}
-            </select>
-            {unregisteredPlayers.length === 0 && (
-              <p className="text-xs text-amber-600 font-medium mt-1">
-                All available players are already registered for this tournament!
-              </p>
-            )}
-          </div>
-
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+        <div className="space-y-4">
+          <p className="text-xs text-zinc-400">
+            Select the official result for board {selectedGameForScore?.board_no}:
+          </p>
+          <div className="grid grid-cols-3 gap-3">
             <button
-              type="button"
-              onClick={() => setIsRegisterModalOpen(false)}
-              className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
+              onClick={() => handleRecordResult('WHITE')}
+              className="py-3 px-2 rounded-xl bg-[#262626] border border-[#383838] hover:border-emerald-500 font-bold text-xs text-white transition-all text-center"
             >
-              Cancel
+              <span className="block text-base mb-1">1 - 0</span>
+              <span className="text-[10px] text-zinc-400">White Wins</span>
             </button>
             <button
-              type="submit"
-              disabled={submitting || !selectedPlayerToRegister}
-              className="px-5 py-2.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
+              onClick={() => handleRecordResult('DRAW')}
+              className="py-3 px-2 rounded-xl bg-[#262626] border border-[#383838] hover:border-amber-500 font-bold text-xs text-white transition-all text-center"
             >
-              {submitting ? 'Registering...' : 'Confirm Registration'}
+              <span className="block text-base mb-1">½ - ½</span>
+              <span className="text-[10px] text-zinc-400">Draw</span>
+            </button>
+            <button
+              onClick={() => handleRecordResult('BLACK')}
+              className="py-3 px-2 rounded-xl bg-[#262626] border border-[#383838] hover:border-blue-500 font-bold text-xs text-white transition-all text-center"
+            >
+              <span className="block text-base mb-1">0 - 1</span>
+              <span className="text-[10px] text-zinc-400">Black Wins</span>
             </button>
           </div>
-        </form>
+        </div>
       </Modal>
 
-      {/* Modal: Schedule Game on Board */}
-      <Modal
-        isOpen={isAddGameModalOpen}
-        onClose={() => setIsAddGameModalOpen(false)}
-        title="Schedule Pairing on Board"
-      >
-        <form onSubmit={handleCreateGame} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-              Board Number
-            </label>
-            <input
-              type="number"
-              min={1}
-              value={gameForm.board_no}
-              onChange={(e) => setGameForm({ ...gameForm, board_no: e.target.value })}
-              required
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-              White Player (Moves First)
-            </label>
-            <select
-              value={gameForm.white_player_id}
-              onChange={(e) => setGameForm({ ...gameForm, white_player_id: e.target.value })}
-              required
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-            >
-              <option value="">-- Choose White Player --</option>
-              {registrations.map((r) => (
-                <option key={r.player_id} value={r.player_id}>
-                  {r.player_name} ({r.current_rating} Elo)
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-              Black Player (Defending)
-            </label>
-            <select
-              value={gameForm.black_player_id}
-              onChange={(e) => setGameForm({ ...gameForm, black_player_id: e.target.value })}
-              required
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-            >
-              <option value="">-- Choose Black Player --</option>
-              {registrations
-                .filter((r) => String(r.player_id) !== String(gameForm.white_player_id))
-                .map((r) => (
-                  <option key={r.player_id} value={r.player_id}>
-                    {r.player_name} ({r.current_rating} Elo)
-                  </option>
-                ))}
-            </select>
-          </div>
-
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => setIsAddGameModalOpen(false)}
-              className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="px-5 py-2.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
-            >
-              {submitting ? 'Scheduling...' : 'Schedule Game'}
-            </button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Modal: Edit Tournament */}
+      {/* Edit Tournament Modal */}
       <Modal
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
@@ -1447,116 +889,52 @@ export const TournamentDetail = () => {
       >
         <form onSubmit={handleEditSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-              Tournament Name *
+            <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+              Tournament Name
             </label>
             <input
               type="text"
-              required
               value={editForm.name}
               onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+              className="w-full px-3.5 py-2 text-xs bg-[#171717] border border-[#303030] rounded-xl text-white focus:outline-none focus:border-[#C6A15B]"
             />
           </div>
-
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-              Tournament Format
-            </label>
-            <select
-              value={editForm.format}
-              onChange={(e) => setEditForm({ ...editForm, format: e.target.value })}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-            >
-              <option value="ROUND_ROBIN">Round Robin</option>
-              <option value="SWISS">Swiss System</option>
-              <option value="KNOCKOUT">Knockout</option>
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Start Date *
+              <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                Start Date
               </label>
               <input
                 type="date"
-                required
                 value={editForm.start_date}
                 onChange={(e) => setEditForm({ ...editForm, start_date: e.target.value })}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+                className="w-full px-3.5 py-2 text-xs bg-[#171717] border border-[#303030] rounded-xl text-white focus:outline-none focus:border-[#C6A15B]"
               />
             </div>
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                End Date *
+              <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                End Date
               </label>
               <input
                 type="date"
-                required
-                min={editForm.start_date}
                 value={editForm.end_date}
                 onChange={(e) => setEditForm({ ...editForm, end_date: e.target.value })}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+                className="w-full px-3.5 py-2 text-xs bg-[#171717] border border-[#303030] rounded-xl text-white focus:outline-none focus:border-[#C6A15B]"
               />
             </div>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Max Players
-              </label>
-              <input
-                type="number"
-                min={2}
-                placeholder="e.g. 16"
-                value={editForm.max_players}
-                onChange={(e) => setEditForm({ ...editForm, max_players: e.target.value })}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Reg. Deadline
-              </label>
-              <input
-                type="date"
-                max={editForm.start_date || undefined}
-                value={editForm.registration_deadline}
-                onChange={(e) => setEditForm({ ...editForm, registration_deadline: e.target.value })}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Rounds Planned
-              </label>
-              <input
-                type="number"
-                min={1}
-                placeholder="e.g. 5"
-                value={editForm.rounds_planned}
-                onChange={(e) => setEditForm({ ...editForm, rounds_planned: e.target.value })}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#2d2d2d]">
             <button
               type="button"
               onClick={() => setIsEditModalOpen(false)}
-              className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
+              className="px-4 py-2 text-xs text-zinc-400 hover:text-white"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={savingEdit}
-              className="px-5 py-2.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
+              className="px-4 py-2 bg-[#C6A15B] hover:bg-[#d8b167] text-black font-bold text-xs rounded-xl"
             >
               {savingEdit ? 'Saving...' : 'Save Changes'}
             </button>
@@ -1566,3 +944,5 @@ export const TournamentDetail = () => {
     </div>
   );
 };
+
+export default TournamentDetail;

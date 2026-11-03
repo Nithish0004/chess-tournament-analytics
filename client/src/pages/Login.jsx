@@ -1,323 +1,354 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { GoogleLogin } from '@react-oauth/google';
 import {
-  Trophy,
-  BarChart2,
-  TrendingUp,
-  Crown,
-  ShieldCheck,
-  ArrowRight,
   Lock,
   Mail,
   User,
-  AlertCircle
+  Eye,
+  EyeOff,
+  AlertCircle,
+  ArrowRight,
+  RotateCw,
+  Check
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { googleAuthApi, resendVerificationApi } from '../api';
+import { Logo } from '../components/Logo';
 
 export const Login = () => {
   const [searchParams] = useSearchParams();
-  const initialSection = searchParams.get('role') === 'ORGANIZER' ? 'ORGANIZER' : 'PLAYER';
-
-  const [loginSection, setLoginSection] = useState(initialSection);
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState(() => {
+    return localStorage.getItem('chess_remembered_identifier') || '';
+  });
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(() => {
+    return !!localStorage.getItem('chess_remembered_identifier');
+  });
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const [unverifiedEmail, setUnverifiedEmail] = useState(false);
+  const [resendingEmail, setResendingEmail] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState(false);
 
-  const { login } = useAuth();
+  const { login, setAuthSession } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
 
+  // If redirected with registered notice or verified message
+  useEffect(() => {
+    const verified = searchParams.get('verified');
+    if (verified === 'true') {
+      showToast('Email verified successfully! You may now sign in.', 'success');
+    }
+  }, [searchParams, showToast]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setErrorMessage('');
     setUnverifiedEmail(false);
+    setResendSuccess(false);
 
-    if (!email.trim() || !password) {
-      showToast('Please enter both email and password', 'error');
+    const cleanIdentifier = identifier.trim();
+    if (!cleanIdentifier || !password) {
+      setErrorMessage('Please enter both your email or username and password');
       return;
     }
 
     setLoading(true);
     try {
-      const data = await login(email.trim(), password);
+      const data = await login(cleanIdentifier, password, rememberMe);
       const userRole = data.user?.role;
-      const userName = data.user?.full_name || data.user?.email || 'User';
+      const displayName = data.user?.full_name || data.user?.username || data.user?.email || 'User';
 
       if (userRole === 'ORGANIZER') {
-        showToast(`Welcome, Tournament Arbiter ${userName}!`, 'success');
+        showToast(`Welcome, Tournament Organizer ${displayName}!`, 'success');
       } else if (userRole === 'ADMIN') {
-        showToast(`Welcome, Administrator ${userName}!`, 'success');
+        showToast(`Welcome, Administrator ${displayName}!`, 'success');
       } else {
-        showToast(`Welcome back, ${userName}!`, 'success');
+        showToast(`Welcome back, ${displayName}!`, 'success');
       }
 
       navigate('/');
     } catch (err) {
       const serverCode = err.response?.data?.code;
+      const serverError = err.response?.data?.error;
+
       if (serverCode === 'EMAIL_NOT_VERIFIED') {
         setUnverifiedEmail(true);
-        showToast('Please verify your email address before logging in', 'error');
-      } else if (serverCode === 'PENDING_APPROVAL') {
-        showToast('Account is verified and currently pending administrator approval', 'error');
-      } else if (serverCode === 'SUSPENDED') {
-        showToast('Your account has been suspended by an administrator', 'error');
+        setErrorMessage('Your email address is not verified yet. Please check your inbox or resend the verification email.');
       } else if (serverCode === 'LOCKED') {
-        showToast('Account temporarily locked due to 5 failed attempts. Wait 15 minutes.', 'error');
+        setErrorMessage('Account is temporarily locked due to too many failed attempts. Please wait 15 minutes before trying again.');
+      } else if (serverCode === 'SUSPENDED') {
+        setErrorMessage('This account has been suspended by an administrator. Please contact support.');
       } else {
-        showToast(err.userMessage || 'Invalid email or password', 'error');
+        setErrorMessage(serverError || err.userMessage || 'Invalid email/username or password. Please try again.');
       }
     } finally {
       setLoading(false);
     }
   };
 
+  const handleResendVerification = async () => {
+    if (!identifier.trim()) {
+      showToast('Please enter your email address to resend verification', 'error');
+      return;
+    }
+    setResendingEmail(true);
+    try {
+      await resendVerificationApi(identifier.trim().toLowerCase());
+      setResendSuccess(true);
+      showToast('Verification email resent! Please check your inbox.', 'success');
+    } catch (err) {
+      showToast(err.userMessage || 'Failed to resend verification email', 'error');
+    } finally {
+      setResendingEmail(false);
+    }
+  };
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    if (!credentialResponse?.credential) {
+      showToast('Google ID token was not received', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await googleAuthApi({
+        id_token: credentialResponse.credential,
+        role: 'PLAYER'
+      });
+      const resolvedUser = data.user || {
+        user_id: data.user_id,
+        email: data.email,
+        username: data.username,
+        full_name: data.full_name,
+        role: data.role,
+        status: data.status,
+        approval_status: data.approval_status,
+        approval_note: data.approval_note,
+        permissions: data.permissions
+      };
+      setAuthSession(data.token, resolvedUser);
+      showToast(`Signed in with Google as ${resolvedUser.full_name || resolvedUser.email}`, 'success');
+
+      if (data.profile_complete === false) {
+        navigate('/complete-profile');
+      } else {
+        navigate('/');
+      }
+    } catch (err) {
+      showToast(err.userMessage || 'Google sign-in failed', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen w-full flex flex-col lg:flex-row bg-[#F4F7FB]">
-      {/* Left Panel: Dark Navy with Chess Pattern Overlay */}
-      <div
-        className="lg:w-1/2 p-8 sm:p-12 lg:p-16 flex flex-col justify-between relative overflow-hidden text-white"
-        style={{
-          background: 'linear-gradient(135deg, #0B1A33 0%, #12274A 100%)'
-        }}
-      >
-        {/* Subtle CSS Chessboard Pattern Overlay */}
-        <div
-          className="absolute inset-0 opacity-[0.04] pointer-events-none"
-          style={{
-            backgroundImage: `
-              linear-gradient(45deg, #ffffff 25%, transparent 25%),
-              linear-gradient(-45deg, #ffffff 25%, transparent 25%),
-              linear-gradient(45deg, transparent 75%, #ffffff 75%),
-              linear-gradient(-45deg, transparent 75%, #ffffff 75%)
-            `,
-            backgroundSize: '48px 48px',
-            backgroundPosition: '0 0, 0 24px, 24px -24px, -24px 0'
-          }}
-        />
+    <div className="min-h-screen w-full bg-[#0d0d0d] text-white flex items-center justify-center p-4 sm:p-6 lg:p-8 relative selection:bg-white/20 selection:text-white">
+      {/* Background Subtle Gradient & Chess Atmosphere */}
+      <div className="fixed inset-0 pointer-events-none opacity-40 bg-[radial-gradient(circle_at_top,_var(--tw-gradient-stops))] from-[#222222] via-[#111111] to-[#0a0a0a]" />
 
-        {/* Brand Header */}
-        <div className="relative z-10 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center">
-            <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 text-white">
-              <path d="M19 22H5v-2h14v2zM17.5 10c-.3 0-.6.1-.8.2-.5-.8-1.4-1.4-2.4-1.6.4-.6.7-1.4.7-2.3 0-2.2-1.8-4-4-4-.4 0-.8.1-1.2.2C9.5 2.2 9 2 8.5 2 7.1 2 6 3.1 6 4.5c0 .3.1.6.2.9C5.5 6 5 6.9 5 8c0 1.9 1.3 3.5 3.1 3.9-.1.3-.1.7-.1 1.1 0 1.2.4 2.3 1.1 3.2L8 18h10l-1.5-6.2c.6-.5 1-1.1 1-1.8z" />
-            </svg>
-          </div>
+      {/* Main Two-Column Container */}
+      <div className="relative z-10 w-full max-w-5xl rounded-3xl bg-[#141414] border border-[#242424] shadow-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-2">
+        {/* Left Column: Login Form */}
+        <div className="p-8 sm:p-12 lg:p-14 flex flex-col justify-between">
           <div>
-            <h2 className="text-xl font-black tracking-tight text-white">ChessTourn</h2>
-            <p className="text-xs text-slate-400 font-medium">Tournament Management &amp; Analytics</p>
-          </div>
-        </div>
+            {/* Brand Logo & Tag */}
+            <Logo variant="horizontal" size="md" linkTo="/" className="mb-8" />
 
-        {/* Hero Copy & 3 Feature Rows */}
-        <div className="relative z-10 my-12 lg:my-auto max-w-lg space-y-8">
-          <div className="space-y-3">
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-white leading-tight">
-              Chess Tournament <br />
-              <span className="text-blue-400">Management System</span>
-            </h1>
-            <p className="text-sm sm:text-base text-slate-300 font-medium leading-relaxed">
-              Organize Tournaments. Track Performance. Build Champions.
-            </p>
-          </div>
-
-          {/* Three Feature Rows */}
-          <div className="space-y-4 pt-2">
-            <div className="flex items-center gap-4 p-3.5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xs">
-              <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 border border-blue-400/20">
-                <Trophy className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-white">Tournament Management</h4>
-                <p className="text-xs text-slate-400">Seamless round-robin and Swiss pairing schedules with real-time standings</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4 p-3.5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xs">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-400/20">
-                <BarChart2 className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-white">Player Analytics</h4>
-                <p className="text-xs text-slate-400">Deep performance metrics, opponent strength analysis, and historical tracking</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4 p-3.5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xs">
-              <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0 border border-purple-400/20">
-                <TrendingUp className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-white">Elo Rating &amp; Insights</h4>
-                <p className="text-xs text-slate-400">Official atomic Elo calculations, upset detection, and ML forecast models</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="relative z-10 text-xs text-slate-400 pt-6 border-t border-white/10 font-medium">
-          &copy; 2026 ChessTourn Platform. Professional Tournament Administration.
-        </div>
-      </div>
-
-      {/* Right Panel: Clean Card with Dedicated Login Sections */}
-      <div className="lg:w-1/2 flex items-center justify-center p-6 sm:p-12 lg:p-16">
-        <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200/90 p-8 sm:p-10 shadow-xl">
-          {/* Header */}
-          <div className="text-center mb-6">
-            <div
-              className={`inline-flex items-center justify-center w-12 h-12 rounded-2xl border mb-3 shadow-xs transition-all ${
-                loginSection === 'PLAYER'
-                  ? 'bg-blue-50 text-blue-600 border-blue-200'
-                  : 'bg-amber-50 text-amber-600 border-amber-200'
-              }`}
-            >
-              {loginSection === 'PLAYER' ? <User className="w-6 h-6" /> : <ShieldCheck className="w-6 h-6" />}
-            </div>
-            <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-              {loginSection === 'PLAYER' ? 'Player / Competitor Login' : 'Tournament Manager Login'}
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium">
-              {loginSection === 'PLAYER'
-                ? 'Sign in to access rating history & register for tournaments'
-                : 'Sign in to manage championships, pairings & match results'}
-            </p>
-          </div>
-
-          {/* Segmented Section Switcher */}
-          <div className="grid grid-cols-2 gap-2 p-1.5 bg-slate-100 rounded-2xl mb-6">
-            <button
-              type="button"
-              onClick={() => {
-                setLoginSection('PLAYER');
-                setUnverifiedEmail(false);
-              }}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                loginSection === 'PLAYER'
-                  ? 'bg-white text-blue-600 shadow-sm border border-slate-200/80'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <User className="w-4 h-4" />
-              <span>User / Player</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setLoginSection('ORGANIZER');
-                setUnverifiedEmail(false);
-              }}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                loginSection === 'ORGANIZER'
-                  ? 'bg-white text-blue-600 shadow-sm border border-slate-200/80'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <ShieldCheck className="w-4 h-4" />
-              <span>Manager &amp; Arbiter</span>
-            </button>
-          </div>
-
-          {/* Unverified Email Alert Banner if applicable */}
-          {unverifiedEmail && (
-            <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-2.5 text-xs text-amber-800">
-              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-bold">Email not verified yet</p>
-                <p className="text-[11px] mt-0.5 text-amber-700">
-                  Did you receive a token?{' '}
-                  <Link to="/verify-email" className="font-bold underline text-amber-900">
-                    Verify token now
-                  </Link>
-                </p>
-              </div>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Email Address
-              </label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder={loginSection === 'PLAYER' ? 'player@example.com' : 'arbiter@example.com'}
-                  required
-                  className="w-full pl-10 pr-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
-                  required
-                  className="w-full pl-10 pr-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full mt-2 py-3 px-4 bg-[#2563EB] hover:bg-blue-600 text-white font-bold rounded-xl shadow-md shadow-blue-600/20 transition-all flex items-center justify-center gap-2 text-sm disabled:opacity-50"
-            >
-              {loading ? (
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                <>
-                  <span>Sign In as {loginSection === 'PLAYER' ? 'Competitor' : 'Manager'}</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </form>
-
-          {/* Contextual Registration Link */}
-          <div className="mt-6 pt-5 border-t border-slate-100 space-y-2 text-center text-xs text-slate-500">
-            {loginSection === 'PLAYER' ? (
-              <p>
-                New competitor?{' '}
-                <Link
-                  to="/register?role=PLAYER"
-                  className="font-bold text-blue-600 hover:text-blue-700 hover:underline"
-                >
-                  Create Player Account
-                </Link>
+            {/* Header Titles */}
+            <div className="space-y-2 mb-8">
+              <h1 className="font-condensed text-3xl sm:text-4xl lg:text-[40px] font-black uppercase tracking-tight text-white leading-tight">
+                WELCOME BACK TO <br />
+                CHESS MAGIC
+              </h1>
+              <p className="text-zinc-400 text-xs sm:text-sm font-normal">
+                Manage tournaments, track ratings and analyze performance.
               </p>
-            ) : (
-              <p>
-                New tournament club or arbiter?{' '}
-                <Link
-                  to="/register?role=ORGANIZER"
-                  className="font-bold text-blue-600 hover:text-blue-700 hover:underline"
-                >
-                  Apply as Tournament Manager
-                </Link>
-              </p>
+            </div>
+
+            {/* Error Message Alert */}
+            {errorMessage && (
+              <div className="mb-6 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <div className="flex-1 space-y-1">
+                  <p className="font-medium leading-relaxed">{errorMessage}</p>
+                  {unverifiedEmail && (
+                    <button
+                      type="button"
+                      onClick={handleResendVerification}
+                      disabled={resendingEmail || resendSuccess}
+                      className="inline-flex items-center gap-1.5 text-xs text-white underline hover:no-underline font-semibold mt-1"
+                    >
+                      <RotateCw className={`w-3 h-3 ${resendingEmail ? 'animate-spin' : ''}`} />
+                      <span>
+                        {resendingEmail
+                          ? 'Resending link...'
+                          : resendSuccess
+                          ? 'Verification link resent!'
+                          : 'Resend Verification Email'}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
 
-            <p className="text-[11px] text-slate-400">
-              Need to verify email?{' '}
-              <Link to="/verify-email" className="font-semibold text-slate-600 hover:underline">
-                Enter token here
-              </Link>
-            </p>
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Email or Username Input */}
+              <div>
+                <label className="sr-only" htmlFor="login-identifier">
+                  Email or Username
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                    <User className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="login-identifier"
+                    type="text"
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
+                    placeholder="Email or Username"
+                    autoComplete="username email"
+                    required
+                    className="w-full pl-10 pr-4 py-3 bg-[#181818] border border-[#2a2a2a] rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Password Input */}
+              <div>
+                <label className="sr-only" htmlFor="login-password">
+                  Password
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="login-password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Password"
+                    autoComplete="current-password"
+                    required
+                    className="w-full pl-10 pr-11 py-3 bg-[#181818] border border-[#2a2a2a] rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-zinc-500 hover:text-zinc-300 transition-colors focus:outline-none"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Remember Me & Forgot Password Row */}
+              <div className="flex items-center justify-between pt-1 pb-2">
+                <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-zinc-400 hover:text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 rounded bg-[#1c1c1c] border-[#333333] text-white focus:ring-0 focus:ring-offset-0 cursor-pointer accent-white"
+                  />
+                  <span>Remember me</span>
+                </label>
+
+                <Link
+                  to="/forgot-password"
+                  className="text-xs text-zinc-400 hover:text-white transition-colors font-medium"
+                >
+                  Forgot Password?
+                </Link>
+              </div>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3.5 px-4 rounded-xl bg-white hover:bg-zinc-200 text-[#111111] font-bold text-sm tracking-wide transition-all shadow-md active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <div className="w-4 h-4 border-2 border-zinc-900 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <span>Login</span>
+                )}
+              </button>
+            </form>
+
+            {/* Optional Google Login */}
+            <div className="mt-6 space-y-4">
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-[#262626]"></div>
+                </div>
+                <div className="relative flex justify-center text-[11px] uppercase">
+                  <span className="bg-[#141414] px-3 text-zinc-500 font-semibold">
+                    Or continue with
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex justify-center w-full">
+                <GoogleLogin
+                  onSuccess={handleGoogleSuccess}
+                  onError={() => showToast('Google sign-in was cancelled', 'error')}
+                  theme="filled_black"
+                  shape="rectangular"
+                  width="100%"
+                />
+              </div>
+            </div>
           </div>
+
+          {/* Footer Link */}
+          <div className="pt-8 text-center text-xs text-zinc-400 font-medium border-t border-[#222222] mt-6">
+            <span>Don&apos;t have an account? </span>
+            <Link
+              to="/register"
+              className="text-white font-bold hover:underline ml-1"
+            >
+              Sign Up
+            </Link>
+          </div>
+        </div>
+
+        {/* Right Column: Premium 3D Chess King Illustration */}
+        <div className="hidden lg:relative lg:flex flex-col items-center justify-center bg-[#0d0d0d] overflow-hidden border-l border-[#222222]/80">
+          {/* Soft moody radial backdrop */}
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_#242424_0%,_#111111_60%,_#0a0a0a_100%)] opacity-80 pointer-events-none" />
+
+          {/* Subtle diagonal pinstripes */}
+          <div
+            className="absolute inset-0 opacity-[0.03] pointer-events-none"
+            style={{
+              backgroundImage: 'repeating-linear-gradient(45deg, #ffffff 0, #ffffff 1px, transparent 0, transparent 24px)'
+            }}
+          />
+
+          {/* Chess King Image */}
+          <div className="relative z-10 w-full h-full flex flex-col items-center justify-center p-8">
+            <img
+              src="/images/chess-king-dark.png"
+              alt="Chess King Dark 3D"
+              className="max-h-[460px] w-auto object-contain drop-shadow-[0_20px_35px_rgba(0,0,0,0.85)] filter contrast-[1.05]"
+              onError={(e) => {
+                // Fallback to jpg if png is not rendered
+                e.currentTarget.src = '/images/chess-king-dark.jpg';
+              }}
+            />
+          </div>
+
+          {/* Atmospheric bottom gradient */}
+          <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[#0a0a0a] via-transparent to-transparent pointer-events-none" />
         </div>
       </div>
     </div>

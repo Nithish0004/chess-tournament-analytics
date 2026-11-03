@@ -4,24 +4,35 @@
 
 :root {
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: dark;
+}
+
+.font-condensed {
+  font-family: 'Barlow Condensed', 'Oswald', sans-serif;
+  letter-spacing: 0.03em;
 }
 
 code, pre {
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* Custom scrollbars */
+/* Custom scrollbars for dark theme */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #121212;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #2c2c2c;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #444444;
+}
+
+/* Clean dark input focus styles */
+input, select, textarea {
+  color-scheme: dark;
 }

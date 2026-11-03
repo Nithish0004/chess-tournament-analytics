@@ -9,7 +9,7 @@ export const Tabs = ({
 }) => {
   if (variant === 'pills') {
     return (
-      <div className={`flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-xl border border-slate-200/80 w-fit ${className}`}>
+      <div className={`flex items-center gap-1.5 p-1 bg-[#181818] rounded-xl border border-[#303030] w-fit ${className}`}>
         {tabs.map((tab) => {
           const isActive = activeTab === tab.key;
           const Icon = tab.icon;
@@ -19,8 +19,8 @@ export const Tabs = ({
               onClick={() => onChange(tab.key)}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 isActive
-                  ? 'bg-white text-blue-600 shadow-2xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                  ? 'bg-[#2a2a2a] text-[#F5F5F5] border border-[#3d3d3d] shadow-xs font-bold'
+                  : 'text-[#A1A1AA] hover:text-[#F5F5F5] hover:bg-[#222222]'
               }`}
             >
               {Icon && <Icon className="w-3.5 h-3.5" />}
@@ -28,7 +28,7 @@ export const Tabs = ({
               {tab.count !== undefined && (
                 <span
                   className={`text-[11px] px-1.5 py-0.2 rounded-full font-bold ${
-                    isActive ? 'bg-blue-50 text-blue-600' : 'bg-slate-200/70 text-slate-600'
+                    isActive ? 'bg-[#383838] text-white' : 'bg-[#222222] text-[#A1A1AA]'
                   }`}
                 >
                   {tab.count}
@@ -42,7 +42,7 @@ export const Tabs = ({
   }
 
   return (
-    <div className={`flex border-b border-slate-200 space-x-1 sm:space-x-4 overflow-x-auto ${className}`}>
+    <div className={`flex border-b border-[#282828] space-x-2 sm:space-x-6 overflow-x-auto ${className}`}>
       {tabs.map((tab) => {
         const isActive = activeTab === tab.key;
         const Icon = tab.icon;
@@ -52,18 +52,16 @@ export const Tabs = ({
             onClick={() => onChange(tab.key)}
             className={`flex items-center gap-2 py-3 px-3 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 transition-all shrink-0 ${
               isActive
-                ? 'border-blue-600 text-blue-600 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
+                ? 'border-[#C6A15B] text-[#C6A15B] font-bold'
+                : 'border-transparent text-[#A1A1AA] hover:text-[#F5F5F5] hover:border-zinc-700'
             }`}
           >
             {Icon && <Icon className="w-4 h-4" />}
             <span>{tab.label}</span>
             {tab.count !== undefined && (
               <span
-                className={`text-xs px-2 py-0.5 rounded-full font-bold transition-colors ${
-                  isActive
-                    ? 'bg-blue-50 text-blue-600'
-                    : 'bg-slate-100 text-slate-500'
+                className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                  isActive ? 'bg-[#C6A15B]/20 text-[#C6A15B]' : 'bg-[#262626] text-[#A1A1AA]'
                 }`}
               >
                 {tab.count}

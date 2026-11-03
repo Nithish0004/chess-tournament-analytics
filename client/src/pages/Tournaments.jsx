@@ -1,36 +1,33 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Trophy,
   PlusCircle,
   Calendar,
-  Layers,
-  ArrowRight,
-  Loader2,
+  MapPin,
   Users,
   Search,
-  RefreshCw,
-  SlidersHorizontal
+  Loader2,
+  ArrowRight,
+  Shield,
+  Layers,
+  Sparkles
 } from 'lucide-react';
 import { getTournamentsApi, createTournamentApi } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Badge } from '../components/Badge';
-import { Card } from '../components/Card';
-import { PageHeader } from '../components/PageHeader';
-import { Tabs } from '../components/Tabs';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
-import { TournamentStatusSteps } from '../components/TournamentStatusSteps';
-import { TournamentStatusButton } from '../components/TournamentStatusButton';
 
 export const Tournaments = ({ defaultOpenCreate = false }) => {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [tournaments, setTournaments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   // Create Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -45,18 +42,19 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
     rounds_planned: ''
   });
 
-  const { isLoggedIn, user } = useAuth();
+  const { user } = useAuth();
   const { showToast } = useToast();
 
-  const canCreate = Boolean(
-    user?.permissions?.can_create_tournament || ['ADMIN', 'ORGANIZER'].includes(user?.role)
+  const isOrganizerOrAdmin = Boolean(['ADMIN', 'ORGANIZER'].includes(user?.role));
+  const isApprovedToCreate = Boolean(
+    user?.role === 'ADMIN' || (user?.role === 'ORGANIZER' && user?.approval_status === 'APPROVED')
   );
 
   useEffect(() => {
-    if (canCreate && (defaultOpenCreate || searchParams.get('create') === 'true')) {
+    if (isApprovedToCreate && (defaultOpenCreate || searchParams.get('create') === 'true')) {
       setIsModalOpen(true);
     }
-  }, [defaultOpenCreate, searchParams, canCreate]);
+  }, [defaultOpenCreate, searchParams, isApprovedToCreate]);
 
   const fetchTournaments = async () => {
     setLoading(true);
@@ -78,21 +76,6 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
     e.preventDefault();
     if (form.end_date < form.start_date) {
       showToast('End date must be greater than or equal to start date', 'error');
-      return;
-    }
-
-    if (form.registration_deadline && form.start_date && form.registration_deadline > form.start_date) {
-      showToast('Registration deadline must be before or on the start date', 'error');
-      return;
-    }
-
-    if (form.max_players && Number(form.max_players) < 2) {
-      showToast('Max players must be at least 2', 'error');
-      return;
-    }
-
-    if (form.rounds_planned && Number(form.rounds_planned) < 1) {
-      showToast('Rounds planned must be at least 1', 'error');
       return;
     }
 
@@ -127,7 +110,6 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
     }
   };
 
-  // Filter tournaments by tab and search
   const filteredTournaments = useMemo(() => {
     return tournaments.filter((t) => {
       const matchesTab = statusFilter === 'ALL' || t.status?.toUpperCase() === statusFilter;
@@ -136,212 +118,171 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
     });
   }, [tournaments, statusFilter, searchQuery]);
 
-  // Status counts (total across full list)
-  const counts = {
-    ALL: tournaments.length,
-    ONGOING: tournaments.filter((t) => t.status === 'ONGOING').length,
-    UPCOMING: tournaments.filter((t) => t.status === 'UPCOMING').length,
-    COMPLETED: tournaments.filter((t) => t.status === 'COMPLETED').length
-  };
-
   const filterTabs = [
-    { key: 'ALL', label: 'All', count: counts.ALL },
-    { key: 'ONGOING', label: 'Ongoing', count: counts.ONGOING },
-    { key: 'UPCOMING', label: 'Upcoming', count: counts.UPCOMING },
-    { key: 'COMPLETED', label: 'Completed', count: counts.COMPLETED }
+    { key: 'ALL', label: 'All' },
+    { key: 'ONGOING', label: 'Ongoing' },
+    { key: 'UPCOMING', label: 'Upcoming' },
+    { key: 'COMPLETED', label: 'Completed' }
   ];
-
-  const formatLabels = {
-    ROUND_ROBIN: 'Round Robin',
-    SWISS: 'Swiss',
-    KNOCKOUT: 'Knockout'
-  };
 
   return (
     <div className="space-y-6 pb-8">
-      {/* Page Header */}
-      <PageHeader
-        title="Tournaments"
-        subtitle="Championship schedules, league fixtures, and live leaderboard rankings"
-        actions={
-          canCreate && (
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Create Tournament</span>
-            </button>
-          )
-        }
-      />
+      {/* Header matching Row 2 Col 1 */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-condensed font-bold uppercase tracking-wider text-white">
+            Tournaments
+          </h1>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            Official championships, round-robin leagues, and knockout fixtures
+          </p>
+        </div>
 
-      {/* Tabs & Search Card */}
-      <Card padding="p-4" className="shadow-2xs">
-        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
-          <Tabs
-            tabs={filterTabs}
-            activeTab={statusFilter}
-            onChange={setStatusFilter}
-            variant="pills"
+        {isOrganizerOrAdmin && (
+          <button
+            onClick={() => {
+              if (!isApprovedToCreate) {
+                showToast('Your account is waiting for admin approval', 'error');
+                return;
+              }
+              setIsModalOpen(true);
+            }}
+            disabled={!isApprovedToCreate}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-[#C6A15B] hover:bg-[#d8b167] text-black font-bold text-xs rounded-xl shadow-sm transition-all disabled:opacity-40"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>Create Tournament</span>
+          </button>
+        )}
+      </div>
+
+      {/* Filter and Search Bar */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-[#202020] border border-[#303030] p-3 rounded-2xl">
+        {/* Filter Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+          {filterTabs.map((tab) => {
+            const active = statusFilter === tab.key;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setStatusFilter(tab.key)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                  active
+                    ? 'bg-[#282828] text-white border border-[#383838]'
+                    : 'text-zinc-400 hover:text-white hover:bg-[#242424]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Search */}
+        <div className="relative w-full sm:w-72">
+          <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search tournaments..."
+            className="w-full pl-9 pr-3.5 py-1.5 text-xs bg-[#171717] border border-[#303030] rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-[#C6A15B]"
           />
-
-          <div className="flex items-center gap-3">
-            <div className="relative w-full sm:w-72">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search tournaments..."
-                className="w-full pl-9 pr-3.5 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-              />
-            </div>
-            <div className="text-xs font-semibold text-slate-500 shrink-0 hidden sm:block">
-              {filteredTournaments.length} found
-            </div>
-          </div>
         </div>
-      </Card>
+      </div>
 
-      {/* Tournaments Table Card */}
-      <Card padding="p-0" className="overflow-hidden shadow-2xs">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm border-collapse">
-            <thead>
-              <tr className="border-b border-slate-200/80 bg-slate-50/75 text-slate-600 text-xs font-semibold tracking-wider uppercase">
-                <th className="py-3.5 px-4 text-center w-12">#</th>
-                <th className="py-3.5 px-4">Name</th>
-                <th className="py-3.5 px-4">Format</th>
-                <th className="py-3.5 px-4">Schedule</th>
-                <th className="py-3.5 px-4">Progress &amp; Stats</th>
-                <th className="py-3.5 px-4 text-center">Status</th>
-                <th className="py-3.5 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? (
-                <tr>
-                  <td colSpan={7} className="py-14 text-center text-slate-400">
-                    <Loader2 className="w-7 h-7 animate-spin mx-auto text-blue-600 mb-2" />
-                    <span className="text-xs font-semibold">Loading tournament fixtures...</span>
-                  </td>
-                </tr>
-              ) : filteredTournaments.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="p-8">
-                    <EmptyState
-                      icon={Trophy}
-                      title="No tournaments found"
-                      description={
-                        searchQuery
-                          ? `No tournaments matching "${searchQuery}" in ${statusFilter.toLowerCase()} tab.`
-                          : statusFilter === 'ALL'
-                          ? 'No tournaments scheduled yet.'
-                          : `No ${statusFilter.toLowerCase()} tournaments found.`
-                      }
+      {/* Tournament Cards Grid */}
+      {loading ? (
+        <div className="min-h-[40vh] flex flex-col items-center justify-center gap-3 text-zinc-500">
+          <Loader2 className="w-8 h-8 animate-spin text-[#C6A15B]" />
+          <p className="text-xs font-semibold text-zinc-400">Loading tournaments...</p>
+        </div>
+      ) : filteredTournaments.length === 0 ? (
+        <EmptyState
+          icon={Trophy}
+          title="No tournaments found"
+          description={
+            searchQuery
+              ? `No tournaments matching "${searchQuery}".`
+              : 'There are no tournaments currently listed in this category.'
+          }
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {filteredTournaments.map((t) => {
+            const registered = t.registered !== undefined ? t.registered : (t.player_count || 0);
+            return (
+              <div
+                key={t.tournament_id}
+                onClick={() => navigate(`/tournaments/${t.tournament_id}`)}
+                className="group rounded-2xl bg-[#202020] border border-[#303030] overflow-hidden hover:border-[#484848] transition-all duration-200 cursor-pointer flex flex-col justify-between shadow-sm"
+              >
+                <div>
+                  {/* Decorative Chess Card Header Banner */}
+                  <div className="h-28 bg-[#171717] border-b border-[#2a2a2a] relative overflow-hidden flex items-center justify-center">
+                    <img
+                      src="/images/chess-king-dark.png"
+                      alt="Chess Emblem"
+                      className="h-24 w-auto object-contain opacity-40 group-hover:opacity-75 transition-opacity duration-300"
                     />
-                  </td>
-                </tr>
-              ) : (
-                filteredTournaments.map((t, idx) => {
-                  const regCount = t.registered !== undefined ? t.registered : (t.player_count || 0);
-                  const roundsCount = t.rounds_created !== undefined ? t.rounds_created : (t.rounds_count || 0);
+                    <div className="absolute top-3 right-3">
+                      <Badge variant={t.status} size="sm">
+                        {t.status}
+                      </Badge>
+                    </div>
+                  </div>
 
-                  return (
-                    <tr
-                      key={t.tournament_id}
-                      className="hover:bg-slate-50/80 transition-colors"
-                    >
-                      <td className="py-3.5 px-4 text-center text-xs font-bold text-slate-400">
-                        {idx + 1}
-                      </td>
+                  {/* Card Content */}
+                  <div className="p-5 space-y-3">
+                    <h3 className="text-base font-bold text-white group-hover:text-[#C6A15B] transition-colors truncate">
+                      {t.name}
+                    </h3>
 
-                      <td className="py-3.5 px-4">
-                        <div className="min-w-[170px]">
-                          <Link
-                            to={`/tournaments/${t.tournament_id}`}
-                            className="font-bold text-slate-900 hover:text-blue-600 transition-colors block text-sm"
-                          >
-                            {t.name}
-                          </Link>
-                          <span className="text-[11px] text-slate-400 font-medium">
-                            ID: #{t.tournament_id}
-                          </span>
-                        </div>
-                      </td>
+                    {/* Format and Type pills */}
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-md bg-[#262626] border border-[#333333] text-[10px] font-semibold text-zinc-300">
+                        {t.format || 'Standard'}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-[#262626] border border-[#333333] text-[10px] font-semibold text-zinc-300">
+                        Individual
+                      </span>
+                    </div>
 
-                      <td className="py-3.5 px-4">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                          {formatLabels[t.format] || t.format}
+                    {/* Metadata */}
+                    <div className="space-y-1.5 text-xs text-zinc-400 pt-1">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                        <span>
+                          {t.start_date ? t.start_date.substring(0, 10) : 'Dates TBA'}
+                          {t.end_date && ` - ${t.end_date.substring(0, 10)}`}
                         </span>
-                      </td>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Users className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                        <span>
+                          {registered} Registered
+                          {t.max_players ? ` / ${t.max_players} Max` : ''}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
-                      <td className="py-3.5 px-4 text-xs font-medium text-slate-600">
-                        <div>
-                          {t.start_date ? t.start_date.substring(0, 10) : '—'} &rarr;{' '}
-                          {t.end_date ? t.end_date.substring(0, 10) : '—'}
-                        </div>
-                        {t.registration_deadline && (
-                          <div className="text-[10px] text-amber-700 font-semibold mt-0.5">
-                            Deadline: {t.registration_deadline.substring(0, 10)}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Progress Stats */}
-                      <td className="py-3.5 px-4">
-                        <div className="space-y-0.5 text-xs">
-                          <div className="flex items-center gap-1.5 font-bold text-slate-800">
-                            <span className="text-blue-700 font-semibold">Registered:</span>
-                            <span>{regCount}{t.max_players ? ` / ${t.max_players}` : ''}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
-                            <span className="text-slate-500">Rounds:</span>
-                            <span>{roundsCount}{t.rounds_planned ? ` / ${t.rounds_planned}` : ''}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
-                            <span className="text-slate-500">Games:</span>
-                            <span>{t.games_finished || 0} / {t.games_total || 0}</span>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Step Indicator */}
-                      <td className="py-3.5 px-4 text-center">
-                        <TournamentStatusSteps status={t.status} size="sm" />
-                      </td>
-
-                      {/* Actions: View and Single Status Action Button */}
-                      <td className="py-3.5 px-4 text-right space-x-2 whitespace-nowrap">
-                        <Link
-                          to={`/tournaments/${t.tournament_id}`}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors"
-                        >
-                          <span>View</span>
-                          <ArrowRight className="w-3 h-3" />
-                        </Link>
-
-                        {t.can_manage ? (
-                          <TournamentStatusButton
-                            tournament={t}
-                            onSuccess={fetchTournaments}
-                            size="sm"
-                          />
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium bg-slate-100 text-slate-500 border border-slate-200">
-                            {t.owner_name ? `Owned by ${t.owner_name}` : 'View only'}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                {/* Card Footer */}
+                <div className="px-5 py-3 border-t border-[#2a2a2a] bg-[#1a1a1a] flex items-center justify-between text-xs">
+                  <span className="text-[11px] font-mono text-zinc-500">
+                    ID #{t.tournament_id}
+                  </span>
+                  <span className="text-zinc-300 font-semibold group-hover:text-white flex items-center gap-1 transition-colors">
+                    View Details
+                    <ArrowRight className="w-3.5 h-3.5 text-[#C6A15B]" />
+                  </span>
+                </div>
+              </div>
+            );
+          })}
         </div>
-      </Card>
+      )}
 
       {/* Create Tournament Modal */}
       <Modal
@@ -351,65 +292,36 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
       >
         <form onSubmit={handleCreateSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+            <label className="block text-xs font-medium text-zinc-300 mb-1.5">
               Tournament Name *
             </label>
             <input
               type="text"
+              required
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="e.g. World Chess Championship 2026"
-              required
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+              placeholder="e.g. RVCE Open 2026"
+              className="w-full px-3.5 py-2 text-xs bg-[#171717] border border-[#303030] rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-[#C6A15B]"
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-              Tournament Format *
-            </label>
-            <select
-              value={form.format}
-              onChange={(e) => setForm({ ...form, format: e.target.value })}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-            >
-              <option value="ROUND_ROBIN">Round Robin</option>
-              <option value="KNOCKOUT">Knockout</option>
-              <option value="SWISS">Swiss</option>
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Start Date *
+              <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                Format
               </label>
-              <input
-                type="date"
-                value={form.start_date}
-                onChange={(e) => setForm({ ...form, start_date: e.target.value })}
-                required
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-              />
+              <select
+                value={form.format}
+                onChange={(e) => setForm({ ...form, format: e.target.value })}
+                className="w-full px-3.5 py-2 text-xs bg-[#171717] border border-[#303030] rounded-xl text-white focus:outline-none focus:border-[#C6A15B]"
+              >
+                <option value="ROUND_ROBIN">Round Robin</option>
+                <option value="SWISS">Swiss System</option>
+                <option value="KNOCKOUT">Single Elimination</option>
+              </select>
             </div>
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                End Date *
-              </label>
-              <input
-                type="date"
-                value={form.end_date}
-                onChange={(e) => setForm({ ...form, end_date: e.target.value })}
-                required
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-              />
-            </div>
-          </div>
-
-          {/* New Optional Tournament Settings */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+              <label className="block text-xs font-medium text-zinc-300 mb-1.5">
                 Max Players
               </label>
               <input
@@ -417,51 +329,51 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
                 min="2"
                 value={form.max_players}
                 onChange={(e) => setForm({ ...form, max_players: e.target.value })}
-                placeholder="e.g. 16 (optional)"
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Reg. Deadline
-              </label>
-              <input
-                type="date"
-                max={form.start_date || undefined}
-                value={form.registration_deadline}
-                onChange={(e) => setForm({ ...form, registration_deadline: e.target.value })}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Rounds Planned
-              </label>
-              <input
-                type="number"
-                min="1"
-                value={form.rounds_planned}
-                onChange={(e) => setForm({ ...form, rounds_planned: e.target.value })}
-                placeholder="e.g. 7 (optional)"
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+                placeholder="Optional"
+                className="w-full px-3.5 py-2 text-xs bg-[#171717] border border-[#303030] rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-[#C6A15B]"
               />
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                Start Date *
+              </label>
+              <input
+                type="date"
+                required
+                value={form.start_date}
+                onChange={(e) => setForm({ ...form, start_date: e.target.value })}
+                className="w-full px-3.5 py-2 text-xs bg-[#171717] border border-[#303030] rounded-xl text-white focus:outline-none focus:border-[#C6A15B]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                End Date *
+              </label>
+              <input
+                type="date"
+                required
+                value={form.end_date}
+                onChange={(e) => setForm({ ...form, end_date: e.target.value })}
+                className="w-full px-3.5 py-2 text-xs bg-[#171717] border border-[#303030] rounded-xl text-white focus:outline-none focus:border-[#C6A15B]"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#2d2d2d]">
             <button
               type="button"
               onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
+              className="px-4 py-2 text-xs text-zinc-400 hover:text-white"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="px-5 py-2.5 bg-[#2563EB] hover:bg-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
+              className="px-4 py-2 bg-[#C6A15B] hover:bg-[#d8b167] text-black font-bold text-xs rounded-xl transition-all"
             >
               {saving ? 'Creating...' : 'Create Tournament'}
             </button>
@@ -471,3 +383,5 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
     </div>
   );
 };
+
+export default Tournaments;

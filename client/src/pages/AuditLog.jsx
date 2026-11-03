@@ -5,19 +5,12 @@ import {
   Filter,
   RefreshCw,
   Loader2,
-  Calendar,
-  User,
-  Activity,
-  Layers,
   ChevronLeft,
   ChevronRight,
   Eye
 } from 'lucide-react';
 import { getAuditLogApi } from '../api';
 import { useToast } from '../context/ToastContext';
-import { PageHeader } from '../components/PageHeader';
-import { Card } from '../components/Card';
-import { Badge } from '../components/Badge';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 
@@ -84,210 +77,137 @@ export const AuditLog = () => {
   const getActionBadge = (action) => {
     const act = (action || '').toUpperCase();
     if (['START', 'APPROVE'].includes(act)) {
-      return <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">{act}</span>;
+      return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">{act}</span>;
     }
     if (['CREATE', 'REGISTER'].includes(act)) {
-      return <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-black bg-blue-100 text-blue-800 border border-blue-200">{act}</span>;
+      return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">{act}</span>;
     }
     if (['UPDATE', 'REACTIVATE'].includes(act)) {
-      return <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-black bg-amber-100 text-amber-800 border border-amber-200">{act}</span>;
+      return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">{act}</span>;
     }
-    if (['COMPLETE', 'RECORD_RESULT'].includes(act)) {
-      return <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-black bg-purple-100 text-purple-800 border border-purple-200">{act}</span>;
+    if (['SUSPEND', 'REJECT'].includes(act)) {
+      return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">{act}</span>;
     }
-    if (['SUSPEND', 'REJECT_RATING_EDIT'].includes(act)) {
-      return <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-black bg-rose-100 text-rose-800 border border-rose-200">{act}</span>;
-    }
-    return <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-black bg-slate-100 text-slate-700 border border-slate-200">{act}</span>;
-  };
-
-  const formatDetailsPreview = (details) => {
-    if (!details) return <span className="text-slate-400 italic">None</span>;
-    try {
-      const obj = typeof details === 'string' ? JSON.parse(details) : details;
-      const keys = Object.keys(obj);
-      if (keys.length === 0) return <span className="text-slate-400 italic">Empty</span>;
-
-      // Compact key-value summaries
-      const summary = keys
-        .slice(0, 3)
-        .map((k) => `${k}: ${typeof obj[k] === 'object' ? '...' : obj[k]}`)
-        .join(', ');
-
-      return (
-        <span className="font-mono text-[11px] text-slate-600 truncate max-w-xs block">
-          {summary} {keys.length > 3 ? '...' : ''}
-        </span>
-      );
-    } catch {
-      return <span className="font-mono text-[11px] text-slate-600 truncate max-w-xs block">{String(details)}</span>;
-    }
+    return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/5 text-zinc-300 border border-white/10">{act}</span>;
   };
 
   const totalPages = Math.ceil(total / limit);
 
   return (
     <div className="space-y-6 pb-8">
-      <PageHeader
-        title="Audit Log"
-        subtitle="Security audit trail of administrative changes, status transitions, and data operations"
-        actions={
-          <button
-            onClick={() => fetchLogs()}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 shadow-2xs transition-all disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : 'text-slate-500'}`} />
-            <span>Refresh</span>
-          </button>
-        }
-      />
-
-      {/* Filters Card */}
-      <Card padding="p-4" className="shadow-2xs">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Entity Filter */}
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-slate-400" />
-              <select
-                value={entityFilter}
-                onChange={(e) => {
-                  setEntityFilter(e.target.value);
-                  setPage(0);
-                }}
-                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-              >
-                {ENTITY_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Actor Filter Form */}
-            <form onSubmit={handleActorSearch} className="flex items-center gap-2">
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  value={actorFilter}
-                  onChange={(e) => setActorFilter(e.target.value)}
-                  placeholder="Filter by actor ID/email..."
-                  className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 w-48 sm:w-60"
-                />
-              </div>
-              <button
-                type="submit"
-                className="px-3 py-1.5 bg-[#2563EB] hover:bg-blue-600 text-white rounded-xl text-xs font-bold transition-all shadow-2xs"
-              >
-                Search
-              </button>
-              {appliedActor && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActorFilter('');
-                    setAppliedActor('');
-                    setPage(0);
-                  }}
-                  className="text-xs text-slate-400 hover:text-slate-600 font-semibold"
-                >
-                  Clear
-                </button>
-              )}
-            </form>
-          </div>
-
-          <div className="text-xs font-semibold text-slate-500 text-right">
-            Total logs: <span className="font-bold text-slate-900">{total}</span>
-          </div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-condensed font-bold uppercase tracking-wider text-white">
+            Audit Log
+          </h1>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            Security audit trail of administrative modifications, approvals, and data events
+          </p>
         </div>
-      </Card>
+
+        <button
+          onClick={() => fetchLogs()}
+          disabled={loading}
+          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#202020] hover:bg-[#282828] border border-[#303030] rounded-xl text-xs font-bold text-zinc-300 transition-all"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-[#C6A15B]' : 'text-zinc-500'}`} />
+          <span>Refresh</span>
+        </button>
+      </div>
+
+      {/* Filter Bar */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-[#202020] border border-[#303030] p-3 rounded-2xl">
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            value={entityFilter}
+            onChange={(e) => {
+              setEntityFilter(e.target.value);
+              setPage(0);
+            }}
+            className="px-3 py-1.5 bg-[#171717] border border-[#303030] rounded-xl text-xs text-white focus:outline-none focus:border-[#C6A15B]"
+          >
+            {ENTITY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+
+          <form onSubmit={handleActorSearch} className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={actorFilter}
+                onChange={(e) => setActorFilter(e.target.value)}
+                placeholder="Search actor..."
+                className="w-48 pl-8 pr-3 py-1.5 bg-[#171717] border border-[#303030] rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#C6A15B]"
+              />
+            </div>
+            <button
+              type="submit"
+              className="px-3 py-1.5 bg-[#C6A15B] hover:bg-[#d8b167] text-black rounded-xl text-xs font-bold"
+            >
+              Filter
+            </button>
+          </form>
+        </div>
+
+        <span className="text-xs text-zinc-400">Total events: {total}</span>
+      </div>
 
       {/* Table Card */}
-      <Card padding="p-0" className="overflow-hidden shadow-2xs">
+      <div className="rounded-2xl bg-[#202020] border border-[#303030] overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm border-collapse">
+          <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="border-b border-slate-200/80 bg-slate-50/75 text-slate-600 text-xs font-semibold tracking-wider uppercase">
-                <th className="py-3.5 px-4 w-44">Time</th>
+              <tr className="border-b border-[#2d2d2d] bg-[#1a1a1a] text-zinc-400 font-condensed font-bold uppercase tracking-wider">
+                <th className="py-3.5 px-4 w-40">Timestamp</th>
                 <th className="py-3.5 px-4">Actor</th>
                 <th className="py-3.5 px-4">Action</th>
                 <th className="py-3.5 px-4">Entity</th>
-                <th className="py-3.5 px-4">Details</th>
-                <th className="py-3.5 px-4 text-right">View</th>
+                <th className="py-3.5 px-4 text-right">Details</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-[#262626]">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-14 text-center text-slate-400">
-                    <Loader2 className="w-7 h-7 animate-spin mx-auto text-blue-600 mb-2" />
-                    <span className="text-xs font-semibold">Loading audit logs...</span>
+                  <td colSpan={5} className="py-14 text-center text-zinc-500">
+                    <Loader2 className="w-7 h-7 animate-spin mx-auto text-[#C6A15B] mb-2" />
+                    <span className="text-xs font-semibold text-zinc-400">Loading audit trail...</span>
                   </td>
                 </tr>
               ) : logs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-8">
+                  <td colSpan={5} className="p-8">
                     <EmptyState
                       icon={FileText}
-                      title="No audit log entries found"
+                      title="No audit entries"
                       description="No recorded audit actions match your filter criteria."
                     />
                   </td>
                 </tr>
               ) : (
                 logs.map((log) => (
-                  <tr key={log.log_id} className="hover:bg-slate-50/80 transition-colors">
-                    {/* Time */}
-                    <td className="py-3.5 px-4 text-xs font-mono text-slate-600 whitespace-nowrap">
+                  <tr key={log.log_id} className="hover:bg-[#262626] transition-colors">
+                    <td className="py-3.5 px-4 font-mono text-zinc-400">
                       {log.created_at ? log.created_at.substring(0, 19).replace('T', ' ') : '—'}
                     </td>
-
-                    {/* Actor */}
-                    <td className="py-3.5 px-4">
-                      <div className="min-w-[140px]">
-                        <span className="font-bold text-slate-900 text-xs block truncate">
-                          {log.actor_name || log.actor_email || (log.actor_user_id ? `User #${log.actor_user_id}` : 'System')}
-                        </span>
-                        {log.actor_email && log.actor_name && (
-                          <span className="text-[10px] text-slate-400 font-mono block truncate">
-                            {log.actor_email}
-                          </span>
-                        )}
-                      </div>
+                    <td className="py-3.5 px-4 text-zinc-300 font-medium">
+                      {log.actor_name || log.actor_email || `User #${log.actor_user_id || 'System'}`}
                     </td>
-
-                    {/* Action */}
-                    <td className="py-3.5 px-4 whitespace-nowrap">
+                    <td className="py-3.5 px-4">
                       {getActionBadge(log.action)}
                     </td>
-
-                    {/* Entity */}
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                        <span>{log.entity}</span>
-                        {log.entity_id != null && (
-                          <span className="font-mono text-slate-500 font-bold">#{log.entity_id}</span>
-                        )}
-                      </span>
+                    <td className="py-3.5 px-4 text-zinc-300 font-mono">
+                      {log.entity} #{log.entity_id}
                     </td>
-
-                    {/* Details preview */}
-                    <td className="py-3.5 px-4">
-                      {formatDetailsPreview(log.details)}
-                    </td>
-
-                    {/* View Action */}
                     <td className="py-3.5 px-4 text-right">
                       <button
                         onClick={() => setSelectedLog(log)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
+                        className="px-2.5 py-1 bg-[#282828] hover:bg-[#333333] text-zinc-200 text-xs font-semibold rounded-lg border border-[#383838]"
                       >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Inspect</span>
+                        Inspect
                       </button>
                     </td>
                   </tr>
@@ -296,94 +216,46 @@ export const AuditLog = () => {
             </tbody>
           </table>
         </div>
+      </div>
 
-        {/* Pagination Footer */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 bg-slate-50/75 border-t border-slate-200/80 text-xs font-semibold text-slate-600">
-            <div>
-              Showing {page * limit + 1}–{Math.min((page + 1) * limit, total)} of {total}
+      {/* Detail Modal */}
+      <Modal
+        isOpen={Boolean(selectedLog)}
+        onClose={() => setSelectedLog(null)}
+        title="Audit Log Entry Details"
+      >
+        {selectedLog && (
+          <div className="space-y-3 text-xs">
+            <div className="p-3 bg-[#171717] rounded-xl border border-[#2d2d2d] space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-zinc-500">Action:</span>
+                <span className="font-bold text-white">{selectedLog.action}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-500">Target Entity:</span>
+                <span className="font-mono text-zinc-300">{selectedLog.entity} #{selectedLog.entity_id}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-500">Actor:</span>
+                <span className="text-zinc-300">{selectedLog.actor_name || selectedLog.actor_email || selectedLog.actor_user_id}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-500">Timestamp:</span>
+                <span className="font-mono text-zinc-400">{selectedLog.created_at}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                disabled={page === 0}
-                className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span>
-                Page {page + 1} of {totalPages}
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                disabled={page >= totalPages - 1}
-                className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+
+            <div>
+              <span className="font-bold text-zinc-400 block mb-1">Payload / Details:</span>
+              <pre className="p-3 bg-[#141414] rounded-xl border border-[#262626] font-mono text-[11px] text-zinc-300 overflow-x-auto max-h-60">
+                {typeof selectedLog.details === 'object'
+                  ? JSON.stringify(selectedLog.details, null, 2)
+                  : String(selectedLog.details || 'No additional details payload recorded.')}
+              </pre>
             </div>
           </div>
         )}
-      </Card>
-
-      {/* Log Details Modal */}
-      {selectedLog && (
-        <Modal
-          isOpen={Boolean(selectedLog)}
-          onClose={() => setSelectedLog(null)}
-          title={`Audit Event #${selectedLog.log_id}: ${selectedLog.action} ${selectedLog.entity}`}
-        >
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
-              <div>
-                <span className="text-slate-400 block font-semibold uppercase text-[10px]">Timestamp</span>
-                <span className="font-mono font-bold text-slate-800">{selectedLog.created_at}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block font-semibold uppercase text-[10px]">Actor</span>
-                <span className="font-bold text-slate-800">
-                  {selectedLog.actor_name || selectedLog.actor_email || (selectedLog.actor_user_id ? `User #${selectedLog.actor_user_id}` : 'System')}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400 block font-semibold uppercase text-[10px]">Action</span>
-                <div>{getActionBadge(selectedLog.action)}</div>
-              </div>
-              <div>
-                <span className="text-slate-400 block font-semibold uppercase text-[10px]">Target Entity</span>
-                <span className="font-bold text-slate-800">
-                  {selectedLog.entity} {selectedLog.entity_id != null ? `#${selectedLog.entity_id}` : ''}
-                </span>
-              </div>
-            </div>
-
-            <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-600 block mb-1.5">
-                Event Payload / Details
-              </span>
-              <pre className="p-3 bg-slate-900 text-slate-100 rounded-xl text-xs font-mono overflow-x-auto max-h-64">
-                {JSON.stringify(
-                  typeof selectedLog.details === 'string'
-                    ? JSON.parse(selectedLog.details || '{}')
-                    : selectedLog.details || {},
-                  null,
-                  2
-                )}
-              </pre>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <button
-                type="button"
-                onClick={() => setSelectedLog(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
+      </Modal>
     </div>
   );
 };

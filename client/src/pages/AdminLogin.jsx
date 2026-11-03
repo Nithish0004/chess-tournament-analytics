@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { Logo } from '../components/Logo';
 
 export const AdminLogin = () => {
   const [emailOrUsername, setEmailOrUsername] = useState('');
@@ -94,13 +95,7 @@ export const AdminLogin = () => {
 
         {/* Brand Header */}
         <div className="relative z-10 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-center">
-            <ShieldAlert className="w-6 h-6 text-red-400" />
-          </div>
-          <div>
-            <h2 className="text-xl font-black tracking-tight text-white">ChessTourn</h2>
-            <p className="text-xs text-red-400 font-semibold uppercase tracking-wider">Restricted Administration</p>
-          </div>
+          <Logo variant="full" size="md" subtitle="RESTRICTED ADMINISTRATION" linkTo="/" />
         </div>
 
         {/* Middle Security Notice */}

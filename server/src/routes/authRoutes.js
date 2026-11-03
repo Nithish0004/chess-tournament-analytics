@@ -7,6 +7,8 @@ import {
   googleLogin,
   forgotPassword,
   resetPassword,
+  checkUsername,
+  checkEmail,
   getMe,
   updateProfile,
   changePassword,
@@ -22,11 +24,13 @@ import {
 } from '../controllers/authController.js';
 import { validateBody } from '../middleware/validateMiddleware.js';
 import { authMiddleware } from '../middleware/authMiddleware.js';
-import { authRateLimiter, loginRateLimiter } from '../middleware/rateLimitMiddleware.js';
+import { authRateLimiter, loginRateLimiter, availabilityRateLimiter } from '../middleware/rateLimitMiddleware.js';
 
 const router = Router();
 
 // Public auth endpoints
+router.get('/check-username', availabilityRateLimiter, checkUsername);
+router.get('/check-email', availabilityRateLimiter, checkEmail);
 router.post('/register', authRateLimiter, validateBody(registerSchema), register);
 router.post('/verify-email', authRateLimiter, validateBody(verifyEmailSchema), verifyEmail);
 router.post('/resend-verification', authRateLimiter, validateBody(resendVerificationSchema), resendVerification);

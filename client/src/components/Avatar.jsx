@@ -1,16 +1,13 @@
 import React from 'react';
-import { Globe } from 'lucide-react';
 import { getCountryFlag } from '../utils/countryFlags';
 
 const AVATAR_COLORS = [
-  'bg-blue-600',
-  'bg-emerald-600',
-  'bg-amber-600',
-  'bg-purple-600',
-  'bg-rose-600',
-  'bg-indigo-600',
-  'bg-teal-600',
-  'bg-cyan-600'
+  'bg-zinc-800 text-zinc-100 border-zinc-700',
+  'bg-[#2c2820] text-[#E8D49E] border-[#4e432c]',
+  'bg-zinc-900 text-zinc-200 border-zinc-700',
+  'bg-[#1e2330] text-[#93c5fd] border-[#2b354d]',
+  'bg-[#1d2b24] text-[#86efac] border-[#2b4435]',
+  'bg-[#2d1c24] text-[#fca5a5] border-[#4d2838]'
 ];
 
 export const getInitials = (name) => {
@@ -44,22 +41,25 @@ export const Avatar = ({
   const sizeClasses = {
     xs: 'w-6 h-6 text-[10px]',
     sm: 'w-8 h-8 text-xs',
-    md: 'w-9 h-9 text-xs',
-    lg: 'w-11 h-11 text-sm',
-    xl: 'w-14 h-14 text-base'
+    md: 'w-9 h-9 text-xs font-semibold',
+    lg: 'w-11 h-11 text-sm font-bold',
+    xl: 'w-16 h-16 text-xl font-black'
   };
 
   return (
     <div className={`relative inline-flex items-center gap-1.5 shrink-0 ${className}`}>
       <div
-        className={`${sizeClasses[size] || sizeClasses.md} ${colorClass} rounded-full flex items-center justify-center font-bold text-white shadow-sm ring-2 ring-white select-none`}
+        className={`${sizeClasses[size] || sizeClasses.md} ${colorClass} rounded-full flex items-center justify-center border shadow-inner select-none font-sans`}
         title={name}
       >
         <span>{initials}</span>
       </div>
-      {showFlag && (
-        <span className="text-base shrink-0" title={country || 'Unknown Country'}>
-          {flag ? flag : <Globe className="w-3.5 h-3.5 text-slate-400 inline" />}
+      {showFlag && flag && (
+        <span
+          className="text-xs shrink-0 cursor-default"
+          title={`Country: ${country}`}
+        >
+          {flag}
         </span>
       )}
     </div>

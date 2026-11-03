@@ -4,17 +4,11 @@ import {
   Sparkles,
   Trophy,
   Loader2,
-  Calendar,
-  Layers,
   BrainCircuit,
-  Info,
   Users
 } from 'lucide-react';
 import { getTournamentsApi, getTournamentPredictionsApi } from '../api';
 import { useToast } from '../context/ToastContext';
-import { PageHeader } from '../components/PageHeader';
-import { Card } from '../components/Card';
-import { Badge } from '../components/Badge';
 import { Avatar } from '../components/Avatar';
 import { EmptyState } from '../components/EmptyState';
 
@@ -27,7 +21,6 @@ export const Predictions = () => {
 
   const { showToast } = useToast();
 
-  // Load tournaments
   useEffect(() => {
     const fetchTournaments = async () => {
       setLoadingTournaments(true);
@@ -47,7 +40,6 @@ export const Predictions = () => {
     fetchTournaments();
   }, [showToast]);
 
-  // Load predictions for selected tournament
   const loadPredictions = useCallback(async (tournId) => {
     if (!tournId) {
       setPredictions([]);
@@ -71,85 +63,76 @@ export const Predictions = () => {
     }
   }, [selectedTournamentId, loadPredictions]);
 
-  const selectedTournament = tournaments.find(
-    (t) => String(t.tournament_id) === String(selectedTournamentId)
-  );
-
   const maxPredictedScore = predictions.length > 0
     ? Math.max(...predictions.map((p) => Number(p.predicted_score) || 1))
     : 1;
 
   return (
     <div className="space-y-6 pb-8">
-      {/* Page Header */}
-      <PageHeader
-        title="Tournament Predictions"
-        subtitle="Machine learning expected score projections, victory probabilities, and tournament forecasts"
-      />
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-condensed font-bold uppercase tracking-wider text-white">
+            Tournament Predictions
+          </h1>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            Machine learning expected score projections, victory probabilities, and tournament forecasts
+          </p>
+        </div>
 
-      {/* Tournament Selector Card */}
-      <Card padding="p-5" className="shadow-2xs">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex-1 max-w-lg">
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-              Select Tournament
-            </label>
-            <select
-              value={selectedTournamentId}
-              onChange={(e) => setSelectedTournamentId(e.target.value)}
-              disabled={loadingTournaments}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-            >
-              {tournaments.map((t) => (
-                <option key={t.tournament_id} value={t.tournament_id}>
-                  {t.name} ({t.format} • {t.status})
-                </option>
-              ))}
-            </select>
-          </div>
+        {/* Tournament Selector */}
+        <div className="min-w-[240px]">
+          <select
+            value={selectedTournamentId}
+            onChange={(e) => setSelectedTournamentId(e.target.value)}
+            disabled={loadingTournaments}
+            className="w-full px-3.5 py-2 bg-[#202020] border border-[#303030] rounded-xl text-xs font-semibold text-white focus:outline-none focus:border-[#C6A15B] cursor-pointer"
+          >
+            {tournaments.map((t) => (
+              <option key={t.tournament_id} value={t.tournament_id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
-          {selectedTournament && (
-            <div className="flex flex-wrap items-center gap-3 pt-2 md:pt-0">
-              <Badge variant={selectedTournament.status}>{selectedTournament.status}</Badge>
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
-                {selectedTournament.format}
-              </span>
-              {predictions.length > 0 && (
-                <span className="text-xs font-mono font-semibold px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1.5">
-                  <BrainCircuit className="w-3.5 h-3.5" />
-                  <span>Model: {predictions[0].model_version}</span>
-                </span>
-              )}
-            </div>
+      {/* Table Card */}
+      <div className="rounded-2xl bg-[#202020] border border-[#303030] overflow-hidden shadow-sm">
+        <div className="p-4 border-b border-[#2d2d2d] flex items-center justify-between">
+          <h3 className="text-sm font-condensed font-bold uppercase tracking-wider text-white">
+            Predicted Standings
+          </h3>
+          {predictions.length > 0 && (
+            <span className="text-[11px] font-mono font-semibold px-2.5 py-0.5 rounded-md bg-white/5 text-zinc-400 border border-white/10 flex items-center gap-1.5">
+              <BrainCircuit className="w-3.5 h-3.5 text-[#C6A15B]" />
+              <span>Model: {predictions[0].model_version || 'v1.0'}</span>
+            </span>
           )}
         </div>
-      </Card>
 
-      {/* Predictions Table Card */}
-      <Card padding="p-0" className="overflow-hidden shadow-2xs">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm border-collapse">
+          <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="border-b border-slate-200/80 bg-slate-50/75 text-slate-600 text-xs font-semibold tracking-wider uppercase">
-                <th className="py-3.5 px-4 text-center w-16">Rank</th>
+              <tr className="border-b border-[#2d2d2d] bg-[#1a1a1a] text-zinc-400 font-condensed font-bold uppercase tracking-wider">
+                <th className="py-3.5 px-4 w-14 text-center">Rank</th>
                 <th className="py-3.5 px-4">Player</th>
-                <th className="py-3.5 px-4 text-right">Rating</th>
-                <th className="py-3.5 px-4 text-center">Predicted Score</th>
+                <th className="py-3.5 px-4 text-center">Rating</th>
+                <th className="py-3.5 px-4 text-center font-bold text-white">Expected Score</th>
                 <th className="py-3.5 px-4">Relative Projection</th>
-                <th className="py-3.5 px-4 text-right">Model Engine</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-[#262626]">
               {loadingPredictions ? (
                 <tr>
-                  <td colSpan={6} className="py-14 text-center text-slate-400">
-                    <Loader2 className="w-7 h-7 animate-spin mx-auto text-blue-600 mb-2" />
-                    <span className="text-xs font-semibold">Generating ML forecasts...</span>
+                  <td colSpan={5} className="py-14 text-center text-zinc-500">
+                    <Loader2 className="w-7 h-7 animate-spin mx-auto text-[#C6A15B] mb-2" />
+                    <span className="text-xs font-semibold text-zinc-400">Generating ML forecasts...</span>
                   </td>
                 </tr>
               ) : predictions.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-8">
+                  <td colSpan={5} className="p-8">
                     <EmptyState
                       icon={Sparkles}
                       title="No predictions generated"
@@ -163,71 +146,52 @@ export const Predictions = () => {
                   const pct = Math.min(100, Math.max(10, Math.round((score / maxPredictedScore) * 100)));
 
                   return (
-                    <tr
-                      key={p.player_id}
-                      className="hover:bg-slate-50/80 transition-colors"
-                    >
-                      {/* Rank */}
+                    <tr key={p.player_id} className="hover:bg-[#262626] transition-colors">
                       <td className="py-3.5 px-4 text-center">
                         <span
                           className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
                             idx === 0
-                              ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                              ? 'bg-[#332a18] text-[#C6A15B] border border-[#524121]'
                               : idx === 1
-                              ? 'bg-slate-200 text-slate-800'
+                              ? 'bg-zinc-800 text-zinc-200 border border-zinc-700'
                               : idx === 2
-                              ? 'bg-amber-50 text-amber-900 border border-amber-200'
-                              : 'text-slate-400'
+                              ? 'bg-[#2e1d16] text-[#cd7f32] border border-[#4a2e22]'
+                              : 'text-zinc-500'
                           }`}
                         >
                           {idx + 1}
                         </span>
                       </td>
 
-                      {/* Player */}
                       <td className="py-3.5 px-4">
                         <Link
                           to={`/players/${p.player_id}`}
-                          className="flex items-center gap-3 group min-w-0"
+                          className="flex items-center gap-2.5 font-bold text-white hover:text-[#C6A15B] transition-colors"
                         >
-                          <Avatar name={p.name} size="sm" />
-                          <span className="font-bold text-slate-900 group-hover:text-blue-600 text-xs sm:text-sm truncate block transition-colors">
-                            {p.name}
-                          </span>
+                          <Avatar name={p.name} size="xs" />
+                          <span>{p.name}</span>
                         </Link>
                       </td>
 
-                      {/* Rating */}
-                      <td className="py-3.5 px-4 text-right">
-                        <span className="font-mono font-bold text-slate-800 text-xs sm:text-sm">
-                          {p.current_rating}
-                        </span>
+                      <td className="py-3.5 px-4 text-center font-mono text-zinc-300">
+                        {p.current_rating}
                       </td>
 
-                      {/* Predicted Score */}
                       <td className="py-3.5 px-4 text-center">
-                        <span className="inline-flex items-center justify-center font-black font-mono text-sm px-3 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs">
+                        <span className="inline-flex items-center justify-center font-black font-mono text-xs px-2.5 py-1 rounded-lg bg-[#282828] text-[#C6A15B] border border-[#383838]">
                           {score.toFixed(2)} pts
                         </span>
                       </td>
 
-                      {/* Progress bar */}
                       <td className="py-3.5 px-4">
                         <div className="w-full max-w-xs">
-                          <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                          <div className="h-2 w-full bg-[#171717] rounded-full overflow-hidden border border-[#2d2d2d]">
                             <div
-                              className="h-full bg-blue-600 rounded-full transition-all duration-300"
+                              className="h-full bg-[#C6A15B] rounded-full transition-all duration-300"
                               style={{ width: `${pct}%` }}
                             />
                           </div>
                         </div>
-                      </td>
-
-                      {/* Model Version */}
-                      <td className="py-3.5 px-4 text-right">
-                        <span className="text-xs font-mono text-slate-500">
-                          {p.model_version || 'v1.0'}
-                        </span>
                       </td>
                     </tr>
                   );
@@ -236,7 +200,9 @@ export const Predictions = () => {
             </tbody>
           </table>
         </div>
-      </Card>
+      </div>
     </div>
   );
 };
+
+export default Predictions;
