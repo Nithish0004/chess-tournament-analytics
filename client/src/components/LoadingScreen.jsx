@@ -33,14 +33,18 @@ export const LoadingScreen = ({
 
         {/* Central Logo Box */}
         <div
-          className={`relative z-10 ${currentSize.box} rounded-2xl bg-black border border-[#303030] overflow-hidden shadow-2xl flex items-center justify-center p-1`}
+          className={`relative z-10 ${currentSize.box} rounded-2xl bg-black border border-[#C6A15B]/30 overflow-hidden shadow-2xl flex items-center justify-center p-1 group`}
         >
           <img
-            src="/images/logo.png"
+            src="/images/logo-512.png"
             alt="Chess Magic"
             className="w-full h-full object-contain filter contrast-105"
             onError={(e) => {
-              e.currentTarget.src = '/logo.png';
+              if (e.currentTarget.src.includes('logo-512.png')) {
+                e.currentTarget.src = '/images/logo.png';
+              } else {
+                e.currentTarget.src = '/logo.png';
+              }
             }}
           />
         </div>

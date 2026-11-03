@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import {
   User,
@@ -13,7 +13,7 @@ import {
   AlertCircle,
   RotateCw,
   ArrowRight,
-  ShieldCheck,
+  Shield,
   AtSign
 } from 'lucide-react';
 import {
@@ -30,6 +30,11 @@ import { CountrySelect } from '../components/CountrySelect';
 import { Logo } from '../components/Logo';
 
 export const Register = () => {
+  const [searchParams] = useSearchParams();
+  const [role, setRole] = useState(() => {
+    return searchParams.get('role')?.toUpperCase() === 'ORGANIZER' ? 'ORGANIZER' : 'PLAYER';
+  });
+
   // Form fields
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
@@ -89,7 +94,7 @@ export const Register = () => {
       setUsernameStatus({
         checking: false,
         available: false,
-        message: 'Must be 3-20 characters'
+        message: 'Must be 3–20 characters'
       });
       return;
     }
@@ -98,7 +103,7 @@ export const Register = () => {
       setUsernameStatus({
         checking: false,
         available: false,
-        message: 'Letters, numbers, and underscores only'
+        message: 'Alphanumeric and underscores only'
       });
       return;
     }
@@ -107,19 +112,11 @@ export const Register = () => {
     const timer = setTimeout(async () => {
       try {
         const res = await checkUsernameApi(trimmed);
-        if (res.available) {
-          setUsernameStatus({
-            checking: false,
-            available: true,
-            message: 'Username available'
-          });
-        } else {
-          setUsernameStatus({
-            checking: false,
-            available: false,
-            message: res.error || 'Username is already taken'
-          });
-        }
+        setUsernameStatus({
+          checking: false,
+          available: res.available,
+          message: res.available ? 'Username available' : 'Username taken'
+        });
       } catch (err) {
         setUsernameStatus({
           checking: false,
@@ -134,13 +131,14 @@ export const Register = () => {
 
   // Debounced email availability check
   useEffect(() => {
-    const trimmed = email.trim().toLowerCase();
+    const trimmed = email.trim();
     if (!trimmed) {
       setEmailStatus({ checking: false, available: null, message: '' });
       return;
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmed)) {
       setEmailStatus({
         checking: false,
         available: false,
@@ -153,19 +151,11 @@ export const Register = () => {
     const timer = setTimeout(async () => {
       try {
         const res = await checkEmailApi(trimmed);
-        if (res.available) {
-          setEmailStatus({
-            checking: false,
-            available: true,
-            message: 'Email available'
-          });
-        } else {
-          setEmailStatus({
-            checking: false,
-            available: false,
-            message: res.error || 'Email already registered'
-          });
-        }
+        setEmailStatus({
+          checking: false,
+          available: res.available,
+          message: res.available ? 'Email available' : 'Email registered'
+        });
       } catch (err) {
         setEmailStatus({
           checking: false,
@@ -173,42 +163,30 @@ export const Register = () => {
           message: ''
         });
       }
-    }, 400);
+    }, 450);
 
     return () => clearTimeout(timer);
   }, [email]);
 
-  // Password criteria & strength calculations
-  const hasMinLength = password.length >= 8;
-  const hasUpper = /[A-Z]/.test(password);
-  const hasLower = /[a-z]/.test(password);
-  const hasDigit = /[0-9]/.test(password);
-  const hasSpecial = /[^A-Za-z0-9]/.test(password);
-  const isPasswordStrong = hasMinLength && hasUpper && hasLower && hasDigit;
-
-  const getStrengthScore = () => {
+  // Password strength score (0 to 4)
+  const passwordScore = useMemo(() => {
+    if (!password) return 0;
     let score = 0;
-    if (hasMinLength) score++;
-    if (hasUpper) score++;
-    if (hasLower) score++;
-    if (hasDigit) score++;
-    if (hasSpecial) score++;
+    if (password.length >= 8) score += 1;
+    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
+    if (/[0-9]/.test(password)) score += 1;
+    if (/[^A-Za-z0-9]/.test(password) || password.length >= 12) score += 1;
     return score;
-  };
+  }, [password]);
 
-  const strengthScore = getStrengthScore();
-  const getStrengthInfo = () => {
-    if (!password) return { label: '', color: 'bg-zinc-700', width: '0%' };
-    if (strengthScore <= 2) return { label: 'Weak', color: 'bg-rose-500', width: '33%' };
-    if (strengthScore <= 4) return { label: 'Good', color: 'bg-amber-400', width: '66%' };
-    return { label: 'Strong', color: 'bg-emerald-400', width: '100%' };
-  };
+  // Checklist states
+  const isUsernameValidLength = username.trim().length >= 3 && username.trim().length <= 20;
+  const isUsernameUnique = usernameStatus.available === true;
+  const isEmailUnique = emailStatus.available === true;
+  const isPasswordStrong = passwordScore >= 3;
+  const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
+  const passwordsMismatch = confirmPassword.length > 0 && password !== confirmPassword;
 
-  const strength = getStrengthInfo();
-  const passwordsMatch = confirmPassword && password === confirmPassword;
-  const passwordsMismatch = confirmPassword && password !== confirmPassword;
-
-  // Form submission handler
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitError('');
@@ -217,44 +195,26 @@ export const Register = () => {
       setSubmitError('Please enter your full name');
       return;
     }
-
-    const cleanUsername = username.trim();
-    if (!cleanUsername || cleanUsername.length < 3 || cleanUsername.length > 20) {
-      setSubmitError('Username must be 3-20 characters long');
+    if (!username.trim() || !isUsernameValidLength) {
+      setSubmitError('Username must be between 3 and 20 characters');
       return;
     }
-
-    if (!/^[A-Za-z0-9_]{3,20}$/.test(cleanUsername)) {
-      setSubmitError('Username may only contain letters, numbers, and underscores');
-      return;
-    }
-
     if (usernameStatus.available === false) {
-      setSubmitError(usernameStatus.message || 'This username is already taken');
+      setSubmitError('This username is already taken. Please choose another.');
       return;
     }
-
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      setSubmitError('Please enter a valid email address');
+    if (!email.trim() || emailStatus.available === false) {
+      setSubmitError('Please enter a valid, unregistered email address');
       return;
     }
-
-    if (emailStatus.available === false) {
-      setSubmitError(emailStatus.message || 'This email address is already registered');
-      return;
-    }
-
     if (!selectedCountry?.code) {
-      setSubmitError('Please select your country');
+      setSubmitError('Please select your country of representation');
       return;
     }
-
-    if (!isPasswordStrong) {
-      setSubmitError('Password must be at least 8 characters and include uppercase, lowercase, and numbers');
+    if (!password || password.length < 8) {
+      setSubmitError('Password must be at least 8 characters long');
       return;
     }
-
     if (password !== confirmPassword) {
       setSubmitError('Passwords do not match');
       return;
@@ -263,61 +223,86 @@ export const Register = () => {
     setLoading(true);
     try {
       const payload = {
-        role: 'PLAYER',
+        name: fullName.trim(),
         full_name: fullName.trim(),
-        username: cleanUsername,
-        email: cleanEmail,
+        username: username.trim(),
+        email: email.trim().toLowerCase(),
+        country: selectedCountry.name || selectedCountry.code,
+        country_code: selectedCountry.code,
         password,
         confirm_password: confirmPassword,
-        country: selectedCountry.name,
-        country_code: selectedCountry.code,
-        date_of_birth: '2000-01-01',
-        gender: 'UNDISCLOSED',
-        experience_level: 'BEGINNER',
+        role: role,
+        ...(role === 'ORGANIZER'
+          ? {
+              phone: '+15551234567',
+              organization: `${fullName.trim()}'s Organization`
+            }
+          : {
+              date_of_birth: '1998-01-01',
+              gender: 'UNDISCLOSED',
+              experience_level: 'INTERMEDIATE'
+            }),
         accept_terms: true
       };
 
       const res = await registerApi(payload);
-      showToast('Account created successfully! Check your inbox.', 'success');
-      setRegisteredEmail(cleanEmail);
-      setRegisteredToken(res.verification_token || '');
+
+      if (res.token) {
+        setAuthSession(res.token, res.user);
+        showToast('Account created successfully! Welcome to Chess Magic.', 'success');
+        navigate('/');
+        return;
+      }
+
+      setRegisteredEmail(email.trim().toLowerCase());
+      setRegisteredToken(res.verification_token || res.token || '');
       setRegisteredSuccess(true);
       setResendCooldown(60);
+      showToast('Registration successful! Please verify your email.', 'success');
     } catch (err) {
-      const errMessage = err.response?.data?.error || err.userMessage || 'Registration failed. Please check your details.';
-      setSubmitError(errMessage);
-      showToast(errMessage, 'error');
+      const serverCode = err.response?.data?.code;
+      const serverMsg = err.response?.data?.error || err.userMessage;
+
+      if (serverCode === 'DUPLICATE_USERNAME') {
+        setSubmitError('This username is already registered. Please choose another.');
+      } else if (serverCode === 'DUPLICATE_EMAIL') {
+        setSubmitError('An account with this email address already exists. Please sign in instead.');
+      } else {
+        setSubmitError(serverMsg || 'Registration failed. Please check your inputs and try again.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // Instant verification in development / test mode
-  const handleInstantVerify = async () => {
-    if (!registeredToken) return;
-    setVerifyingToken(true);
-    try {
-      await verifyEmailApi(registeredToken);
-      showToast('Email verified successfully! You can now log in.', 'success');
-      navigate('/login?verified=true');
-    } catch (err) {
-      showToast(err.userMessage || 'Verification failed. Please use the link sent to your email.', 'error');
-    } finally {
-      setVerifyingToken(false);
-    }
-  };
-
-  const handleResendEmail = async () => {
+  const handleResend = async () => {
     if (resendCooldown > 0 || resending || !registeredEmail) return;
     setResending(true);
     try {
       await resendVerificationApi(registeredEmail);
-      showToast('Verification email resent! Please check your inbox.', 'success');
       setResendCooldown(60);
+      showToast('Verification email resent! Please check your inbox.', 'success');
     } catch (err) {
-      showToast(err.userMessage || 'Failed to resend verification link', 'error');
+      showToast(err.userMessage || 'Failed to resend verification email', 'error');
     } finally {
       setResending(false);
+    }
+  };
+
+  const handleInstantVerify = async () => {
+    if (!registeredToken) return;
+    setVerifyingToken(true);
+    try {
+      const res = await verifyEmailApi(registeredToken);
+      if (res.token) {
+        setAuthSession(res.token, res.user);
+      }
+      showToast('Email verified successfully! Welcome to Chess Magic.', 'success');
+      navigate('/');
+    } catch (err) {
+      showToast(err.userMessage || 'Failed to verify token', 'error');
+    } finally {
+      setVerifyingToken(false);
     }
   };
 
@@ -339,12 +324,10 @@ export const Register = () => {
         full_name: data.full_name,
         role: data.role,
         status: data.status,
-        approval_status: data.approval_status,
-        approval_note: data.approval_note,
-        permissions: data.permissions
+        approval_status: data.approval_status
       };
       setAuthSession(data.token, resolvedUser);
-      showToast(`Welcome to Chess Magic, ${resolvedUser.full_name || resolvedUser.email}!`, 'success');
+      showToast(`Welcome to Chess Magic, ${resolvedUser.full_name || resolvedUser.username}!`, 'success');
 
       if (data.profile_complete === false) {
         navigate('/complete-profile');
@@ -352,36 +335,34 @@ export const Register = () => {
         navigate('/');
       }
     } catch (err) {
-      showToast(err.userMessage || 'Google sign-in failed', 'error');
+      showToast(err.userMessage || 'Google registration failed', 'error');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#0d0d0d] text-white flex items-center justify-center p-4 sm:p-6 lg:p-8 relative selection:bg-white/20 selection:text-white">
+    <div className="min-h-screen w-full bg-[#101010] text-white flex items-center justify-center p-4 sm:p-6 lg:p-8 relative selection:bg-[#C6A15B]/30 selection:text-white">
       {/* Background Subtle Gradient */}
-      <div className="fixed inset-0 pointer-events-none opacity-40 bg-[radial-gradient(circle_at_top,_var(--tw-gradient-stops))] from-[#222222] via-[#111111] to-[#0a0a0a]" />
+      <div className="fixed inset-0 pointer-events-none opacity-40 bg-[radial-gradient(circle_at_top,_var(--tw-gradient-stops))] from-[#242424] via-[#141414] to-[#0a0a0a]" />
 
-      {/* Main Two-Column Card Container */}
-      <div className="relative z-10 w-full max-w-5xl rounded-3xl bg-[#141414] border border-[#242424] shadow-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-12">
-        {/* Left Column: Decorative Chess Knight Panel */}
-        <div className="lg:col-span-5 bg-[#0e0e0e] border-b lg:border-b-0 lg:border-r border-[#222222]/80 p-8 sm:p-10 flex flex-col justify-between relative overflow-hidden">
-          {/* Subtle diagonal pinstripes */}
-          <div
-            className="absolute inset-0 opacity-[0.03] pointer-events-none"
-            style={{
-              backgroundImage: 'repeating-linear-gradient(45deg, #ffffff 0, #ffffff 1px, transparent 0, transparent 24px)'
-            }}
-          />
-
-          <div className="relative z-10">
-            {/* Brand Logo */}
-            <Logo variant="horizontal" size="md" linkTo="/" className="mb-6" />
+      {/* Main Container matching reference UI */}
+      <div className="relative z-10 w-full max-w-5xl rounded-[28px] bg-[#171717] border border-[#262626] shadow-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-12">
+        {/* Left Section: Branding & 3D Knight Visual (5 Cols) */}
+        <div className="lg:col-span-5 p-8 sm:p-10 lg:p-12 flex flex-col justify-between relative border-b lg:border-b-0 lg:border-r border-[#262626]">
+          {/* Top Brand Lockup (Vertical Stacked, Left-Aligned) */}
+          <div>
+            <Logo
+              variant="vertical"
+              size="lg"
+              linkTo="/"
+              align="left"
+              className="mb-7"
+            />
 
             {/* Header Titles */}
             <div className="space-y-2 mb-6">
-              <h1 className="font-condensed text-3xl sm:text-4xl font-black uppercase tracking-tight text-white leading-tight">
+              <h1 className="font-condensed text-3xl sm:text-4xl lg:text-[42px] font-black uppercase tracking-tight text-white leading-[1.08]">
                 CREATE YOUR <br />
                 ACCOUNT
               </h1>
@@ -389,163 +370,74 @@ export const Register = () => {
                 Join tournaments, track your rating and grow as a player.
               </p>
             </div>
-
-            {/* 3D Metallic Knight Image */}
-            <div className="my-4 flex items-center justify-center">
-              <img
-                src="/images/chess-knight-dark.png"
-                alt="Chess Knight Metallic 3D"
-                className="max-h-[220px] sm:max-h-[260px] w-auto object-contain drop-shadow-[0_15px_30px_rgba(0,0,0,0.85)] filter contrast-[1.05]"
-                onError={(e) => {
-                  e.currentTarget.src = '/images/chess-knight-dark.jpg';
-                }}
-              />
-            </div>
           </div>
 
-          {/* Interactive Checklist matching reference UI */}
-          <div className="relative z-10 pt-4 border-t border-[#222222] space-y-2.5">
-            <div className="flex items-center gap-2.5 text-xs">
-              <div
-                className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[10px] ${
-                  usernameStatus.available === true
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                    : 'bg-[#222222] text-zinc-500'
-                }`}
-              >
-                ✓
-              </div>
-              <span
-                className={
-                  usernameStatus.available === true
-                    ? 'text-zinc-200 font-medium'
-                    : 'text-zinc-500'
-                }
-              >
-                Unique username
-              </span>
-            </div>
+          {/* 3D Chess Knight Visual */}
+          <div className="my-auto py-4 flex items-center justify-center select-none">
+            <img
+              src="/images/chess-knight-dark.png"
+              alt="Chess Magic 3D Knight"
+              className="max-h-[250px] sm:max-h-[280px] w-auto object-contain drop-shadow-[0_20px_40px_rgba(0,0,0,0.9)] filter contrast-[1.05] hover:scale-[1.02] transition-transform duration-500"
+              onError={(e) => {
+                e.currentTarget.src = '/images/logo-512.png';
+              }}
+            />
+          </div>
 
-            <div className="flex items-center gap-2.5 text-xs">
-              <div
-                className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[10px] ${
-                  emailStatus.available === true
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                    : 'bg-[#222222] text-zinc-500'
-                }`}
-              >
-                ✓
-              </div>
-              <span
-                className={
-                  emailStatus.available === true
-                    ? 'text-zinc-200 font-medium'
-                    : 'text-zinc-500'
-                }
-              >
-                Unique email
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2.5 text-xs">
-              <div
-                className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[10px] ${
-                  username.trim().length >= 3 && username.trim().length <= 20
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                    : 'bg-[#222222] text-zinc-500'
-                }`}
-              >
-                ✓
-              </div>
-              <span
-                className={
-                  username.trim().length >= 3 && username.trim().length <= 20
-                    ? 'text-zinc-200 font-medium'
-                    : 'text-zinc-500'
-                }
-              >
-                3–20 characters
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2.5 text-xs">
-              <div
-                className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[10px] ${
-                  isPasswordStrong
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                    : 'bg-[#222222] text-zinc-500'
-                }`}
-              >
-                ✓
-              </div>
-              <span
-                className={
-                  isPasswordStrong
-                    ? 'text-zinc-200 font-medium'
-                    : 'text-zinc-500'
-                }
-              >
-                Use a strong password
-              </span>
-            </div>
+          {/* Bottom subtle note */}
+          <div className="text-[11px] text-zinc-500 font-mono tracking-wider uppercase pt-4">
+            Official Championship Registry
           </div>
         </div>
 
-        {/* Right Column: Registration Form Card */}
-        <div className="lg:col-span-7 p-6 sm:p-10 lg:p-12 flex flex-col justify-between bg-[#141414]">
+        {/* Right Section: Registration Form Inset Panel (7 Cols) */}
+        <div className="lg:col-span-7 m-3 sm:m-4 p-6 sm:p-8 lg:p-10 rounded-2xl bg-[#141416] border border-[#242426] flex flex-col justify-between relative shadow-inner">
           {registeredSuccess ? (
             /* Post-Registration Success View */
-            <div className="my-auto py-6 text-center space-y-6">
+            <div className="my-auto py-8 text-center space-y-6">
               <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto shadow-lg">
                 <CheckCircle2 className="w-9 h-9" />
               </div>
 
-              <div className="space-y-2">
-                <h2 className="font-condensed text-3xl font-black uppercase tracking-tight text-white">
-                  Account Created Successfully!
-                </h2>
-                <p className="text-zinc-400 text-xs sm:text-sm max-w-md mx-auto leading-relaxed">
-                  A verification link was dispatched to{' '}
-                  <strong className="text-white font-semibold">{registeredEmail}</strong>.
-                  Please verify your email address to activate your account.
+              <div className="space-y-2 max-w-md mx-auto">
+                <h3 className="text-2xl font-condensed font-bold uppercase tracking-wider text-white">
+                  Registration Received
+                </h3>
+                <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed">
+                  We have dispatched an activation link to{' '}
+                  <strong className="text-white font-medium">{registeredEmail}</strong>. Please confirm your email to finalize tournament eligibility.
                 </p>
               </div>
 
-              {/* Dev mode / Console instant verification button */}
+              {/* Dev Auto-verify shortcut */}
               {registeredToken && (
-                <div className="p-4 rounded-2xl bg-[#1c1c1c] border border-[#2d2d2d] max-w-md mx-auto space-y-3 text-left">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-300">
-                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                    <span>Quick Email Verification</span>
-                  </div>
-                  <p className="text-[11px] text-zinc-400">
-                    Console mail mode detected. You can instantly verify your email with one click:
-                  </p>
+                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-left max-w-sm mx-auto space-y-2">
+                  <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider block">
+                    Direct Activation Link
+                  </span>
                   <button
                     type="button"
                     onClick={handleInstantVerify}
                     disabled={verifyingToken}
-                    className="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2"
+                    className="w-full py-2 px-3 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-bold text-xs transition-colors flex items-center justify-center gap-1.5"
                   >
                     {verifyingToken ? (
-                      <RotateCw className="w-4 h-4 animate-spin" />
+                      <RotateCw className="w-3.5 h-3.5 animate-spin" />
                     ) : (
-                      <>
-                        <span>Verify &amp; Proceed to Login</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </>
+                      <Check className="w-3.5 h-3.5" />
                     )}
+                    <span>Activate Account & Sign In</span>
                   </button>
                 </div>
               )}
 
-              {/* Resend verification button */}
+              {/* Resend Action */}
               <div className="pt-2">
                 <button
                   type="button"
-                  onClick={handleResendEmail}
+                  onClick={handleResend}
                   disabled={resendCooldown > 0 || resending}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-zinc-400 hover:text-white bg-[#1a1a1a] hover:bg-[#222222] border border-[#2c2c2c] rounded-xl transition-all disabled:opacity-50"
+                  className="text-xs text-zinc-400 hover:text-white transition-colors disabled:opacity-50 inline-flex items-center gap-1.5 font-medium"
                 >
                   <RotateCw className={`w-3.5 h-3.5 ${resending ? 'animate-spin' : ''}`} />
                   <span>
@@ -571,275 +463,342 @@ export const Register = () => {
             </div>
           ) : (
             /* Registration Form */
-            <div>
-              {/* Form Title & Notice */}
-              <div className="mb-6">
-                <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-                  Player Registration
+            <div className="flex flex-col justify-between h-full">
+              {/* Role Toggle Selector */}
+              <div className="flex rounded-xl bg-[#1A1A1D] border border-[#2A2A2E] p-1 mb-5">
+                <button
+                  type="button"
+                  onClick={() => setRole('PLAYER')}
+                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-condensed font-bold uppercase tracking-wider transition-all ${
+                    role === 'PLAYER'
+                      ? 'bg-[#EFEFEF] text-black shadow-sm'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  Player
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRole('ORGANIZER')}
+                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-condensed font-bold uppercase tracking-wider transition-all ${
+                    role === 'ORGANIZER'
+                      ? 'bg-[#EFEFEF] text-black shadow-sm'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  Tournament Organizer
+                </button>
+              </div>
+
+              {/* Form Title */}
+              <div className="mb-4">
+                <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white font-condensed uppercase">
+                  {role === 'PLAYER' ? 'Player Registration' : 'Organizer Registration'}
                 </h2>
-                <p className="text-xs text-zinc-400 mt-1">
-                  Create your tournament profile to join official tournaments
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  {role === 'PLAYER'
+                    ? 'Create your tournament profile to join official championships'
+                    : 'Manage championships, pair rounds and track official ratings'}
                 </p>
               </div>
 
               {/* Error Alert */}
               {submitError && (
-                <div className="mb-5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2.5">
+                <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2.5">
                   <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
                   <span className="font-medium leading-relaxed">{submitError}</span>
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="space-y-4">
-                {/* 1. Full Name */}
-                <div>
-                  <label className="block text-xs font-medium text-zinc-300 mb-1.5" htmlFor="reg-fullname">
-                    Full Name <span className="text-rose-400">*</span>
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
-                      <User className="w-4 h-4" />
-                    </div>
-                    <input
-                      id="reg-fullname"
-                      type="text"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      placeholder="e.g. Magnus Carlsen"
-                      autoComplete="name"
-                      required
-                      className="w-full pl-10 pr-4 py-2.5 bg-[#161616] border border-[#2a2a2a] rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 transition-all font-sans"
-                    />
-                  </div>
-                </div>
-
-                {/* 2. Username (3-20 chars) with Real-Time Availability Feedback */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-medium text-zinc-300" htmlFor="reg-username">
-                      Username (3–20 characters) <span className="text-rose-400">*</span>
-                    </label>
-                    {/* Inline feedback */}
-                    {usernameStatus.checking ? (
-                      <span className="text-[11px] text-zinc-400 flex items-center gap-1">
-                        <RotateCw className="w-3 h-3 animate-spin" /> Checking...
-                      </span>
-                    ) : usernameStatus.available === true ? (
-                      <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
-                        <Check className="w-3 h-3" /> {usernameStatus.message}
-                      </span>
-                    ) : usernameStatus.available === false ? (
-                      <span className="text-[11px] text-rose-400 font-medium flex items-center gap-1">
-                        <XCircle className="w-3 h-3" /> {usernameStatus.message}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
-                      <AtSign className="w-4 h-4" />
-                    </div>
-                    <input
-                      id="reg-username"
-                      type="text"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      placeholder="e.g. grandmaster_99"
-                      autoComplete="username"
-                      required
-                      maxLength={20}
-                      className={`w-full pl-10 pr-10 py-2.5 bg-[#161616] border rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:ring-1 transition-all font-sans ${
-                        usernameStatus.available === true
-                          ? 'border-emerald-500/50 focus:border-emerald-500 focus:ring-emerald-500/20'
-                          : usernameStatus.available === false
-                          ? 'border-rose-500/50 focus:border-rose-500 focus:ring-rose-500/20'
-                          : 'border-[#2a2a2a] focus:border-white/40 focus:ring-white/20'
-                      }`}
-                    />
-                    <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none">
-                      {usernameStatus.checking && (
-                        <RotateCw className="w-4 h-4 text-zinc-500 animate-spin" />
-                      )}
-                      {usernameStatus.available === true && (
-                        <Check className="w-4 h-4 text-emerald-400" />
-                      )}
-                      {usernameStatus.available === false && (
-                        <XCircle className="w-4 h-4 text-rose-400" />
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3. Email Address with Real-Time Availability Feedback */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-medium text-zinc-300" htmlFor="reg-email">
-                      Email Address <span className="text-rose-400">*</span>
-                    </label>
-                    {/* Inline feedback */}
-                    {emailStatus.checking ? (
-                      <span className="text-[11px] text-zinc-400 flex items-center gap-1">
-                        <RotateCw className="w-3 h-3 animate-spin" /> Checking...
-                      </span>
-                    ) : emailStatus.available === true ? (
-                      <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
-                        <Check className="w-3 h-3" /> {emailStatus.message}
-                      </span>
-                    ) : emailStatus.available === false ? (
-                      <span className="text-[11px] text-rose-400 font-medium flex items-center gap-1">
-                        <XCircle className="w-3 h-3" /> {emailStatus.message}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
-                      <Mail className="w-4 h-4" />
-                    </div>
-                    <input
-                      id="reg-email"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="player@example.com"
-                      autoComplete="email"
-                      required
-                      className={`w-full pl-10 pr-10 py-2.5 bg-[#161616] border rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:ring-1 transition-all font-sans ${
-                        emailStatus.available === true
-                          ? 'border-emerald-500/50 focus:border-emerald-500 focus:ring-emerald-500/20'
-                          : emailStatus.available === false
-                          ? 'border-rose-500/50 focus:border-rose-500 focus:ring-rose-500/20'
-                          : 'border-[#2a2a2a] focus:border-white/40 focus:ring-white/20'
-                      }`}
-                    />
-                    <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none">
-                      {emailStatus.checking && (
-                        <RotateCw className="w-4 h-4 text-zinc-500 animate-spin" />
-                      )}
-                      {emailStatus.available === true && (
-                        <Check className="w-4 h-4 text-emerald-400" />
-                      )}
-                      {emailStatus.available === false && (
-                        <XCircle className="w-4 h-4 text-rose-400" />
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* 4. Country - Complete Searchable ISO 3166-1 Dropdown */}
-                <div>
-                  <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                    Country <span className="text-rose-400">*</span>
-                  </label>
-                  <CountrySelect
-                    value={selectedCountry?.code || ''}
-                    onChange={(country) => setSelectedCountry(country)}
-                    placeholder="Search and select your country..."
-                  />
-                </div>
-
-                {/* 5. Password & 6. Confirm Password (Side by side on larger screens) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                  {/* Password */}
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-300 mb-1.5" htmlFor="reg-password">
-                      Password <span className="text-rose-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
-                        <Lock className="w-4 h-4" />
-                      </div>
-                      <input
-                        id="reg-password"
-                        type={showPassword ? 'text' : 'password'}
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••"
-                        autoComplete="new-password"
-                        required
-                        className="w-full pl-10 pr-10 py-2.5 bg-[#161616] border border-[#2a2a2a] rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 transition-all font-sans"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        aria-label={showPassword ? 'Hide password' : 'Show password'}
-                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-zinc-300 transition-colors focus:outline-none"
-                      >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Confirm Password */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-xs font-medium text-zinc-300" htmlFor="reg-confirm-password">
-                        Confirm Password <span className="text-rose-400">*</span>
+              {/* Form Content Grid */}
+              <form onSubmit={handleSubmit} className="space-y-3.5">
+                {/* Responsive 2-column layout on large screens: Form on left, live validation on right */}
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                  {/* Form Inputs (8 cols on md+) */}
+                  <div className="md:col-span-8 space-y-3.5">
+                    {/* 1. Full Name */}
+                    <div>
+                      <label className="sr-only" htmlFor="reg-fullname">
+                        Full Name
                       </label>
-                      {passwordsMatch && (
-                        <span className="text-[11px] text-emerald-400 font-medium">Match</span>
-                      )}
-                      {passwordsMismatch && (
-                        <span className="text-[11px] text-rose-400 font-medium">Mismatch</span>
-                      )}
-                    </div>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
-                        <Lock className="w-4 h-4" />
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                          <User className="w-4 h-4" />
+                        </div>
+                        <input
+                          id="reg-fullname"
+                          type="text"
+                          value={fullName}
+                          onChange={(e) => setFullName(e.target.value)}
+                          placeholder="Full Name"
+                          autoComplete="name"
+                          required
+                          className="w-full pl-10 pr-4 py-2.5 bg-[#1F1F21] border border-[#2E2E30] rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-[#C6A15B] focus:ring-1 focus:ring-[#C6A15B]/30 transition-all font-sans"
+                        />
                       </div>
-                      <input
-                        id="reg-confirm-password"
-                        type={showConfirmPassword ? 'text' : 'password'}
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="••••••••"
-                        autoComplete="new-password"
-                        required
-                        className={`w-full pl-10 pr-10 py-2.5 bg-[#161616] border rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:ring-1 transition-all font-sans ${
-                          passwordsMatch
-                            ? 'border-emerald-500/50 focus:border-emerald-500 focus:ring-emerald-500/20'
-                            : passwordsMismatch
-                            ? 'border-rose-500/50 focus:border-rose-500 focus:ring-rose-500/20'
-                            : 'border-[#2a2a2a] focus:border-white/40 focus:ring-white/20'
+                    </div>
+
+                    {/* 2. Username (3-20 chars) */}
+                    <div>
+                      <label className="sr-only" htmlFor="reg-username">
+                        Username (3–20 characters)
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                          <Shield className="w-4 h-4" />
+                        </div>
+                        <input
+                          id="reg-username"
+                          type="text"
+                          value={username}
+                          onChange={(e) => setUsername(e.target.value)}
+                          placeholder="Username (3–20 characters)"
+                          autoComplete="username"
+                          required
+                          maxLength={20}
+                          className={`w-full pl-10 pr-10 py-2.5 bg-[#1F1F21] border rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:ring-1 transition-all font-sans ${
+                            usernameStatus.available === true
+                              ? 'border-emerald-500/50 focus:border-emerald-500 focus:ring-emerald-500/20'
+                              : usernameStatus.available === false
+                              ? 'border-rose-500/50 focus:border-rose-500 focus:ring-rose-500/20'
+                              : 'border-[#2E2E30] focus:border-[#C6A15B] focus:ring-[#C6A15B]/30'
+                          }`}
+                        />
+                        <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none">
+                          {usernameStatus.checking && (
+                            <RotateCw className="w-4 h-4 text-zinc-500 animate-spin" />
+                          )}
+                          {usernameStatus.available === true && (
+                            <Check className="w-4 h-4 text-emerald-400" />
+                          )}
+                          {usernameStatus.available === false && (
+                            <XCircle className="w-4 h-4 text-rose-400" />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 3. Email Address */}
+                    <div>
+                      <label className="sr-only" htmlFor="reg-email">
+                        Email Address
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                          <Mail className="w-4 h-4" />
+                        </div>
+                        <input
+                          id="reg-email"
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder="Email Address"
+                          autoComplete="email"
+                          required
+                          className={`w-full pl-10 pr-10 py-2.5 bg-[#1F1F21] border rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:ring-1 transition-all font-sans ${
+                            emailStatus.available === true
+                              ? 'border-emerald-500/50 focus:border-emerald-500 focus:ring-emerald-500/20'
+                              : emailStatus.available === false
+                              ? 'border-rose-500/50 focus:border-rose-500 focus:ring-rose-500/20'
+                              : 'border-[#2E2E30] focus:border-[#C6A15B] focus:ring-[#C6A15B]/30'
+                          }`}
+                        />
+                        <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none">
+                          {emailStatus.checking && (
+                            <RotateCw className="w-4 h-4 text-zinc-500 animate-spin" />
+                          )}
+                          {emailStatus.available === true && (
+                            <Check className="w-4 h-4 text-emerald-400" />
+                          )}
+                          {emailStatus.available === false && (
+                            <XCircle className="w-4 h-4 text-rose-400" />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 4. Country - Full Searchable Selector */}
+                    <div>
+                      <CountrySelect
+                        value={selectedCountry?.code || ''}
+                        onChange={(country) => setSelectedCountry(country)}
+                        placeholder="Country"
+                      />
+                    </div>
+
+                    {/* 5. Password */}
+                    <div>
+                      <label className="sr-only" htmlFor="reg-password">
+                        Password
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                          <Lock className="w-4 h-4" />
+                        </div>
+                        <input
+                          id="reg-password"
+                          type={showPassword ? 'text' : 'password'}
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="Password"
+                          autoComplete="new-password"
+                          required
+                          className="w-full pl-10 pr-11 py-2.5 bg-[#1F1F21] border border-[#2E2E30] rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-[#C6A15B] focus:ring-1 focus:ring-[#C6A15B]/30 transition-all font-sans"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
+                          className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-zinc-500 hover:text-zinc-300 transition-colors focus:outline-none"
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 6. Confirm Password */}
+                    <div>
+                      <label className="sr-only" htmlFor="reg-confirm-password">
+                        Confirm Password
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                          <Lock className="w-4 h-4" />
+                        </div>
+                        <input
+                          id="reg-confirm-password"
+                          type={showConfirmPassword ? 'text' : 'password'}
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          placeholder="Confirm Password"
+                          autoComplete="new-password"
+                          required
+                          className={`w-full pl-10 pr-11 py-2.5 bg-[#1F1F21] border rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:ring-1 transition-all font-sans ${
+                            passwordsMatch
+                              ? 'border-emerald-500/50 focus:border-emerald-500 focus:ring-emerald-500/20'
+                              : passwordsMismatch
+                              ? 'border-rose-500/50 focus:border-rose-500 focus:ring-rose-500/20'
+                              : 'border-[#2E2E30] focus:border-[#C6A15B] focus:ring-[#C6A15B]/30'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                          className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-zinc-500 hover:text-zinc-300 transition-colors focus:outline-none"
+                        >
+                          {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Checklist Section (4 cols on md+ beside inputs, matching reference screenshot) */}
+                  <div className="md:col-span-4 flex flex-col justify-center space-y-3 pt-1 pl-1">
+                    <div className="flex items-center gap-2 text-xs">
+                      <Check
+                        className={`w-4 h-4 shrink-0 transition-colors ${
+                          isUsernameUnique ? 'text-emerald-400' : 'text-zinc-500'
                         }`}
                       />
-                      <button
-                        type="button"
-                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                        aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-zinc-300 transition-colors focus:outline-none"
+                      <span
+                        className={`transition-colors ${
+                          isUsernameUnique ? 'text-zinc-200 font-medium' : 'text-zinc-500'
+                        }`}
                       >
-                        {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
+                        Unique username
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-xs">
+                      <Check
+                        className={`w-4 h-4 shrink-0 transition-colors ${
+                          isEmailUnique ? 'text-emerald-400' : 'text-zinc-500'
+                        }`}
+                      />
+                      <span
+                        className={`transition-colors ${
+                          isEmailUnique ? 'text-zinc-200 font-medium' : 'text-zinc-500'
+                        }`}
+                      >
+                        Unique email
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-xs">
+                      <Check
+                        className={`w-4 h-4 shrink-0 transition-colors ${
+                          isUsernameValidLength ? 'text-emerald-400' : 'text-zinc-500'
+                        }`}
+                      />
+                      <span
+                        className={`transition-colors ${
+                          isUsernameValidLength ? 'text-zinc-200 font-medium' : 'text-zinc-500'
+                        }`}
+                      >
+                        3–20 characters
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-xs">
+                      <Check
+                        className={`w-4 h-4 shrink-0 transition-colors ${
+                          isPasswordStrong ? 'text-emerald-400' : 'text-zinc-500'
+                        }`}
+                      />
+                      <span
+                        className={`transition-colors ${
+                          isPasswordStrong ? 'text-zinc-200 font-medium' : 'text-zinc-500'
+                        }`}
+                      >
+                        Use a strong password
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Password Strength Meter */}
-                {password && (
-                  <div className="space-y-1.5 pt-1">
-                    <div className="flex items-center justify-between text-[11px] text-zinc-400">
-                      <span>Password Strength</span>
-                      <span className={`font-semibold ${
-                        strength.label === 'Strong' ? 'text-emerald-400' :
-                        strength.label === 'Good' ? 'text-amber-400' : 'text-rose-400'
-                      }`}>
-                        {strength.label}
-                      </span>
-                    </div>
-                    <div className="w-full h-1.5 bg-[#222222] rounded-full overflow-hidden">
-                      <div
-                        className={`h-full transition-all duration-300 rounded-full ${strength.color}`}
-                        style={{ width: strength.width }}
-                      />
-                    </div>
+                {/* Password Strength Indicator (4 Segmented Pill Bars matching reference mockup) */}
+                <div className="pt-1.5 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] text-zinc-400 font-medium">
+                    <span>Password Strength</span>
+                    <span className="text-[10px] text-zinc-500 font-mono">
+                      {passwordScore === 4
+                        ? 'Strong'
+                        : passwordScore === 3
+                        ? 'Good'
+                        : passwordScore === 2
+                        ? 'Fair'
+                        : passwordScore === 1
+                        ? 'Weak'
+                        : 'Required'}
+                    </span>
                   </div>
-                )}
+                  <div className="grid grid-cols-4 gap-2">
+                    {[1, 2, 3, 4].map((step) => {
+                      const isActive = passwordScore >= step;
+                      let barColor = 'bg-[#262629]';
+                      if (isActive) {
+                        if (passwordScore <= 1) barColor = 'bg-rose-500';
+                        else if (passwordScore === 2) barColor = 'bg-amber-500';
+                        else if (passwordScore === 3) barColor = 'bg-[#C6A15B]';
+                        else barColor = 'bg-emerald-400';
+                      }
+                      return (
+                        <div
+                          key={step}
+                          className={`h-1.5 rounded-full transition-all duration-300 ${barColor}`}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
 
-                {/* Submit Button */}
+                {/* Submit Button (White/Light silver pill matching reference mockup) */}
                 <div className="pt-2">
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full py-3.5 px-4 rounded-xl bg-white hover:bg-zinc-200 text-[#111111] font-bold text-sm tracking-wide transition-all shadow-md active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="w-full py-3.5 px-4 rounded-xl bg-[#EFEFEF] hover:bg-white text-[#111111] font-bold text-sm tracking-wide transition-all shadow-md active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {loading ? (
                       <div className="w-4 h-4 border-2 border-zinc-900 border-t-transparent rounded-full animate-spin" />
@@ -850,36 +809,57 @@ export const Register = () => {
                 </div>
               </form>
 
-              {/* Optional Google Registration */}
-              <div className="mt-5 space-y-3">
+              {/* Optional Google Registration (Disabled with Coming Soon Tooltip) */}
+              <div className="mt-4 space-y-3">
                 <div className="relative">
                   <div className="absolute inset-0 flex items-center">
                     <div className="w-full border-t border-[#262626]"></div>
                   </div>
-                  <div className="relative flex justify-center text-[11px] uppercase">
-                    <span className="bg-[#141414] px-3 text-zinc-500 font-semibold">
-                      Or sign up with
+                  <div className="relative flex justify-center text-[10px] uppercase">
+                    <span className="bg-[#141416] px-2.5 text-zinc-500 font-semibold tracking-wider">
+                      Or register with
                     </span>
                   </div>
                 </div>
 
-                <div className="flex justify-center w-full">
-                  <GoogleLogin
-                    onSuccess={handleGoogleSuccess}
-                    onError={() => showToast('Google sign-in was cancelled', 'error')}
-                    theme="filled_black"
-                    shape="rectangular"
-                    width="100%"
-                  />
+                <div className="relative group w-full">
+                  <button
+                    type="button"
+                    disabled
+                    className="w-full py-2.5 px-4 rounded-xl bg-[#1c1c1e] border border-[#2a2a2e] text-zinc-400 font-medium text-xs flex items-center justify-center gap-2.5 cursor-not-allowed opacity-80"
+                  >
+                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                      <path
+                        fill="#4285F4"
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                      />
+                      <path
+                        fill="#EA4335"
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                      />
+                    </svg>
+                    <span>Continue with Google</span>
+                  </button>
+                  <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 hidden group-hover:flex items-center px-2.5 py-1 rounded-md bg-[#222225] border border-[#333336] text-[11px] text-zinc-300 font-medium whitespace-nowrap shadow-xl z-20 pointer-events-none">
+                    Coming soon
+                  </div>
                 </div>
               </div>
 
-              {/* Already have an account link */}
-              <div className="pt-6 text-center text-xs text-zinc-400 font-medium border-t border-[#222222] mt-6">
+              {/* Footer Link */}
+              <div className="pt-4 text-center text-xs text-zinc-400 font-medium border-t border-[#222226] mt-4">
                 <span>Already have an account? </span>
                 <Link
                   to="/login"
-                  className="text-white font-bold hover:underline ml-1"
+                  className="text-white font-bold hover:text-[#C6A15B] transition-colors ml-1"
                 >
                   Login
                 </Link>

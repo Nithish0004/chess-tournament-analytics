@@ -78,14 +78,44 @@ Content-Type: application/json
   "email": "hikaru@chess.example"
 }
 
-# 1.6 Player Login (returns approval_status, approval_note, permissions object)
-# @name playerLogin
+# 1.6a Player Login by Email (returns JWT with role PLAYER)
+# @name playerLoginEmail
 POST {{baseUrl}}/api/auth/login
 Content-Type: application/json
 
 {
   "email": "hikaru@chess.example",
   "password": "PlayerPass123!"
+}
+
+# 1.6b Player Login by Username (returns JWT with role PLAYER)
+# @name playerLoginUsername
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "hikaru_nakamura",
+  "password": "PlayerPass123!"
+}
+
+# 1.6c Organizer Login by Username or Email (returns JWT with role ORGANIZER)
+# @name organizerLogin
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "fide_arbiter",
+  "password": "ArbiterPass123!"
+}
+
+# 1.6d Legacy admin_user Table Login (returns JWT with role ADMIN)
+# @name adminLegacyLogin
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "{{adminPassword}}"
 }
 
 ### Store Player Token

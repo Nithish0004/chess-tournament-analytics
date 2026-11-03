@@ -31,6 +31,44 @@ export const authMiddleware = async (req, res, next) => {
     );
 
     if (rows.length === 0) {
+      // Check user_account table (additive accounts schema)
+      const [accRows] = await pool.query(
+        'SELECT account_id, username, email, role, player_id FROM user_account WHERE account_id = ?',
+        [decoded.user_id]
+      );
+      if (accRows.length > 0) {
+        const acc = accRows[0];
+        req.user = {
+          user_id: acc.account_id,
+          email: acc.email,
+          full_name: acc.username,
+          role: acc.role,
+          status: 'ACTIVE',
+          approval_status: 'APPROVED',
+          player_id: acc.player_id
+        };
+        return next();
+      }
+
+      // Check admin_user table (legacy admin accounts)
+      const [admRows] = await pool.query(
+        'SELECT admin_id, username, role FROM admin_user WHERE admin_id = ?',
+        [decoded.user_id]
+      );
+      if (admRows.length > 0) {
+        const adm = admRows[0];
+        req.user = {
+          user_id: adm.admin_id,
+          email: `${adm.username}@chess.admin`,
+          full_name: adm.username,
+          role: adm.role || 'ADMIN',
+          status: 'ACTIVE',
+          approval_status: 'APPROVED',
+          player_id: null
+        };
+        return next();
+      }
+
       return res.status(401).json({ error: 'User account not found' });
     }
 

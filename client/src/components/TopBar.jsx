@@ -138,7 +138,7 @@ export const TopBar = ({ title = 'Dashboard', subtitle }) => {
             {showUserMenu && (
               <div className="absolute right-0 mt-2 w-52 rounded-2xl bg-[#202020] border border-[#303030] shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 text-xs">
                 <div className="px-3 py-2.5 border-b border-[#2d2d2d] flex items-center gap-2.5">
-                  <Logo variant="icon" size="xs" linkTo={false} />
+                  <Logo variant="icon" size="sm" linkTo={false} />
                   <div className="min-w-0 flex-1">
                     <p className="font-bold text-white truncate">{displayName}</p>
                     <p className="text-[11px] text-zinc-400 truncate">{user?.email}</p>

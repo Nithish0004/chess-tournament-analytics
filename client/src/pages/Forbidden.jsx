@@ -2,6 +2,7 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ShieldAlert, ArrowLeft, Home } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { Logo } from '../components/Logo';
 
 export const Forbidden = () => {
   const { user } = useAuth();
@@ -18,6 +19,10 @@ export const Forbidden = () => {
   return (
     <div className="min-h-[70vh] flex items-center justify-center p-4">
       <div className="max-w-md w-full bg-[#202020] border border-[#303030] rounded-2xl p-8 sm:p-10 text-center shadow-2xl">
+        <div className="flex justify-center mb-6">
+          <Logo variant="horizontal" size="sm" linkTo="/" />
+        </div>
+
         <div className="w-16 h-16 rounded-2xl bg-[#2a181c] border border-[#521c25] text-rose-400 flex items-center justify-center mx-auto mb-5 shadow-inner">
           <ShieldAlert className="w-8 h-8" />
         </div>

@@ -1030,6 +1030,143 @@ const runTests = async () => {
       dummyLoginRes.status === 403 && dummyLoginJson.code === 'SUSPENDED'
     );
 
+    // ---------------------------------------------------------------
+    // 8. Unified user_account & Auth Redesign Verification
+    // ---------------------------------------------------------------
+    console.log('\n--- Verifying Unified user_account & Redesign Auth ---');
+    const NEW_PLAYER_USER = `player_acc_${RUN_ID}`.slice(0, 20);
+    const NEW_PLAYER_EMAIL = `p_acc_${RUN_ID}@test.local`;
+    const NEW_ORG_USER = `org_acc_${RUN_ID}`.slice(0, 20);
+    const NEW_ORG_EMAIL = `o_acc_${RUN_ID}@test.local`;
+    const ACC_PASS = 'P@ssword1234!';
+
+    // Register PLAYER
+    const regPlayerRes = await fetch(`${BASE_URL}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: 'PLAYER',
+        full_name: 'Additive Player Test',
+        username: NEW_PLAYER_USER,
+        email: NEW_PLAYER_EMAIL,
+        password: ACC_PASS,
+        confirm_password: ACC_PASS,
+        date_of_birth: '1998-05-15',
+        gender: 'MALE',
+        experience_level: 'INTERMEDIATE',
+        accept_terms: true
+      })
+    });
+    const regPlayerJson = await regPlayerRes.json();
+    record(
+      'POST /api/auth/register PLAYER succeeds (200/201)',
+      regPlayerRes.status === 200 || regPlayerRes.status === 201
+    );
+
+    // Verify player row created with 1200 rating
+    const [pRow] = await pool.query(
+      'SELECT player_id, current_rating FROM player WHERE email = ?',
+      [NEW_PLAYER_EMAIL]
+    );
+    record(
+      'PLAYER registration creates linked player row with rating 1200',
+      pRow.length > 0 && Number(pRow[0].current_rating) === 1200
+    );
+
+    // Verify user_account row created
+    const [accRow] = await pool.query(
+      'SELECT account_id, username, email, role, player_id FROM user_account WHERE email = ?',
+      [NEW_PLAYER_EMAIL]
+    );
+    record(
+      'PLAYER registration records in user_account with player_id FK',
+      accRow.length > 0 && accRow[0].role === 'PLAYER' && accRow[0].player_id === pRow[0].player_id
+    );
+
+    // Register ORGANIZER
+    const regOrgRes = await fetch(`${BASE_URL}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: 'ORGANIZER',
+        full_name: 'Additive Organizer Test',
+        username: NEW_ORG_USER,
+        email: NEW_ORG_EMAIL,
+        password: ACC_PASS,
+        confirm_password: ACC_PASS,
+        phone: '+15550001111',
+        organization: 'Chess Masters Org',
+        accept_terms: true
+      })
+    });
+    record(
+      'POST /api/auth/register ORGANIZER succeeds (200/201)',
+      regOrgRes.status === 200 || regOrgRes.status === 201
+    );
+
+    const [orgAccRow] = await pool.query(
+      'SELECT account_id, username, email, role, player_id FROM user_account WHERE email = ?',
+      [NEW_ORG_EMAIL]
+    );
+    record(
+      'ORGANIZER registration creates account in user_account without player_id (NULL)',
+      orgAccRow.length > 0 && orgAccRow[0].role === 'ORGANIZER' && orgAccRow[0].player_id === null
+    );
+
+    // Verify email for the new test accounts so they can login
+    await pool.query('UPDATE app_user SET status = "ACTIVE", email_verified = 1, approval_status = "APPROVED" WHERE email IN (?, ?)', [NEW_PLAYER_EMAIL, NEW_ORG_EMAIL]);
+
+    // Test Login via USERNAME
+    const loginUserRes = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: NEW_PLAYER_USER,
+        password: ACC_PASS
+      })
+    });
+    const loginUserJson = await loginUserRes.json();
+    record(
+      'POST /api/auth/login with username returns JWT and role PLAYER',
+      loginUserRes.status === 200 && !!loginUserJson.token && loginUserJson.user?.role === 'PLAYER'
+    );
+
+    // Test Login via EMAIL
+    const loginEmailRes = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: NEW_ORG_EMAIL,
+        password: ACC_PASS
+      })
+    });
+    const loginEmailJson = await loginEmailRes.json();
+    record(
+      'POST /api/auth/login with email returns JWT and role ORGANIZER',
+      loginEmailRes.status === 200 && !!loginEmailJson.token && loginEmailJson.user?.role === 'ORGANIZER'
+    );
+
+    // Test Legacy admin_user table login
+    const ADMIN_USER_NAME = `admin_legacy_${RUN_ID}`.slice(0, 20);
+    const adminUserHash = await bcrypt.hash('LegacyAdminPass123!', 12);
+    await pool.query(
+      'INSERT INTO admin_user (username, password_hash, role) VALUES (?, ?, "ADMIN")',
+      [ADMIN_USER_NAME, adminUserHash]
+    );
+    const adminLegacyRes = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: ADMIN_USER_NAME,
+        password: 'LegacyAdminPass123!'
+      })
+    });
+    const adminLegacyJson = await adminLegacyRes.json();
+    record(
+      'Legacy admin_user table login succeeds and returns JWT with role ADMIN',
+      adminLegacyRes.status === 200 && !!adminLegacyJson.token && adminLegacyJson.user?.role === 'ADMIN'
+    );
+
   } catch (err) {
     console.error('Unexpected error during test execution:', err);
   } finally {
@@ -1058,7 +1195,9 @@ const runTests = async () => {
         )`
       );
 
-      // 7. Delete app_user rows
+      // 7. Delete app_user and user_account rows
+      await pool.query("DELETE FROM user_account WHERE email LIKE '%@test.local' OR username LIKE 'admin_legacy_%'");
+      await pool.query("DELETE FROM admin_user WHERE username LIKE 'admin_legacy_%'");
       await pool.query("DELETE FROM app_user WHERE email LIKE '%@test.local'");
 
       // 8. Delete player rows

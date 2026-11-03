@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 650" width="100%" height="100%">
+
+  <defs>
+    <radialGradient id="spotlightGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#C6A15B" stop-opacity="0.35"/>
+      <stop offset="50%" stop-color="#C6A15B" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="floorShadow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.9"/>
+      <stop offset="70%" stop-color="#000000" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFE082"/>
+      <stop offset="30%" stop-color="#C6A15B"/>
+      <stop offset="70%" stop-color="#8C6D2D"/>
+      <stop offset="100%" stop-color="#DFB86C"/>
+    </linearGradient>
+    <linearGradient id="darkMetalGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3A3A3D"/>
+      <stop offset="35%" stop-color="#222225"/>
+      <stop offset="65%" stop-color="#18181A"/>
+      <stop offset="100%" stop-color="#2C2C30"/>
+    </linearGradient>
+    <linearGradient id="silverGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1C1C1E"/>
+      <stop offset="25%" stop-color="#48484E"/>
+      <stop offset="50%" stop-color="#D1D1D6"/>
+      <stop offset="75%" stop-color="#323236"/>
+      <stop offset="100%" stop-color="#141416"/>
+    </linearGradient>
+    <filter id="dropGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.85"/>
+    </filter>
+  </defs>
+
+  <!-- Central golden nebula spotlight -->
+  <circle cx="400" cy="340" r="320" fill="url(#spotlightGlow)" />
+  
+  <!-- Floor shadow -->
+  <ellipse cx="400" cy="610" rx="350" ry="35" fill="url(#floorShadow)" />
+  
+  <!-- Queen on Left (slightly behind, offset left) -->
+  <g transform="translate(50, 40) scale(0.92)">
+    
+    <!-- Base -->
+    <path d="M105 540 C105 520 125 515 145 510 L255 510 C275 515 295 520 295 540 C295 552 275 558 200 558 C125 558 105 552 105 540 Z" fill="url(#silverGrad)" />
+    <path d="M115 525 L285 525 L275 510 L125 510 Z" fill="url(#goldGrad)" />
+    <path d="M130 510 L270 510 L255 480 L145 480 Z" fill="url(#darkMetalGrad)" stroke="#C6A15B" stroke-width="1" />
+    
+    <!-- Body -->
+    <path d="M145 480 C158 410 165 350 168 290 L232 290 C235 350 242 410 255 480 Z" fill="url(#silverGrad)" />
+    
+    <!-- Gold Collars -->
+    <rect x="158" y="280" width="84" height="14" rx="6" fill="url(#goldGrad)" />
+    <rect x="152" y="262" width="96" height="18" rx="7" fill="url(#darkMetalGrad)" stroke="#C6A15B" stroke-width="1" />
+    
+    <!-- Upper Body -->
+    <path d="M160 262 C155 210 148 175 140 145 L260 145 C252 175 245 210 240 262 Z" fill="url(#silverGrad)" />
+    
+    <!-- Coronet Spikes -->
+    <path d="M140 145 L150 90 L175 125 L200 75 L225 125 L250 90 L260 145 Z" fill="url(#darkMetalGrad)" stroke="#C6A15B" stroke-width="2" />
+    <path d="M138 145 L262 145 L255 135 L145 135 Z" fill="url(#goldGrad)" />
+    
+    <!-- Coronet Jewels -->
+    <circle cx="150" cy="88" r="7" fill="url(#goldGrad)" stroke="#FFF" stroke-width="0.5" />
+    <circle cx="175" cy="122" r="5" fill="url(#goldGrad)" />
+    <circle cx="200" cy="72" r="9" fill="url(#goldGrad)" stroke="#FFF" stroke-width="1" />
+    <circle cx="225" cy="122" r="5" fill="url(#goldGrad)" />
+    <circle cx="250" cy="88" r="7" fill="url(#goldGrad)" stroke="#FFF" stroke-width="0.5" />
+  </g>
+
+  
+  <!-- King in Center/Right (foreground) -->
+  <g transform="translate(350, 0) scale(1.02)">
+    
+    <!-- Base Pedestal -->
+    <path d="M100 540 C100 520 120 515 140 510 L260 510 C280 515 300 520 300 540 C300 552 280 558 200 558 C120 558 100 552 100 540 Z" fill="url(#silverGrad)" />
+    <path d="M110 525 L290 525 L280 510 L120 510 Z" fill="url(#goldGrad)" />
+    <path d="M125 510 L275 510 L260 480 L140 480 Z" fill="url(#darkMetalGrad)" stroke="#C6A15B" stroke-width="1" />
+    
+    <!-- Body Flute -->
+    <path d="M140 480 C155 420 160 360 165 300 L235 300 C240 360 245 420 260 480 Z" fill="url(#silverGrad)" />
+    
+    <!-- Gold Ring Collar -->
+    <rect x="155" y="290" width="90" height="16" rx="6" fill="url(#goldGrad)" stroke="#FFE082" stroke-width="1" />
+    <rect x="150" y="270" width="100" height="20" rx="8" fill="url(#darkMetalGrad)" stroke="#C6A15B" stroke-width="1.5" />
+    
+    <!-- Crown Neck & Torso -->
+    <path d="M155 270 C150 220 140 180 135 150 L265 150 C260 180 250 220 245 270 Z" fill="url(#silverGrad)" />
+    
+    <!-- King Crown Head -->
+    <path d="M130 150 C125 125 140 100 200 95 C260 100 275 125 270 150 Z" fill="url(#darkMetalGrad)" stroke="#C6A15B" stroke-width="2" />
+    <circle cx="200" cy="100" r="14" fill="url(#goldGrad)" />
+    
+    <!-- Cross Finial -->
+    <!-- Vertical Cross bar -->
+    <path d="M194 40 L206 40 L208 95 L192 95 Z" fill="url(#goldGrad)" stroke="#FFE082" stroke-width="1" />
+    <!-- Horizontal Cross bar -->
+    <path d="M180 55 L220 55 L220 67 L180 67 Z" fill="url(#goldGrad)" stroke="#FFE082" stroke-width="1" />
+    <!-- Flared Cross ends -->
+    <circle cx="200" cy="40" r="5" fill="#FFE082" />
+    <circle cx="180" cy="61" r="4" fill="#FFE082" />
+    <circle cx="220" cy="61" r="4" fill="#FFE082" />
+  </g>
+
+</svg>

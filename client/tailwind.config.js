@@ -8,12 +8,14 @@ export default {
     extend: {
       colors: {
         dark: {
-          bg: '#101010',
-          sidebar: '#171717',
-          card: '#202020',
-          elevated: '#262626',
-          border: '#303030',
-          muted: '#383838'
+          bg: '#0f0f10',
+          surface: '#161617',
+          card: '#161617',
+          elevated: '#1c1c1e',
+          sidebar: '#141415',
+          border: '#262628',
+          borderLight: '#2e2e30',
+          muted: '#38383a'
         },
         gold: {
           DEFAULT: '#C6A15B',
@@ -38,6 +40,16 @@ export default {
           900: '#232734',
           950: '#141720',
         }
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        condensed: ['Barlow Condensed', 'Oswald', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace'],
+      },
+      borderRadius: {
+        '2xl': '1rem',
+        '3xl': '1.5rem',
+        '4xl': '1.75rem',
       }
     },
   },

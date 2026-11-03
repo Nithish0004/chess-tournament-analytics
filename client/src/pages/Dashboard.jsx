@@ -41,6 +41,8 @@ import { Badge } from '../components/Badge';
 import { Avatar } from '../components/Avatar';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
+import { Logo } from '../components/Logo';
+import { LoadingScreen } from '../components/LoadingScreen';
 
 export const Dashboard = () => {
   const { user } = useAuth();
@@ -158,12 +160,7 @@ export const Dashboard = () => {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 text-zinc-500">
-        <Loader2 className="w-8 h-8 animate-spin text-[#C6A15B]" />
-        <p className="text-xs font-semibold text-zinc-400">Loading personalized dashboard metrics...</p>
-      </div>
-    );
+    return <LoadingScreen message="Loading personalized dashboard metrics..." />;
   }
 
   if (!data) return null;
@@ -203,13 +200,19 @@ export const Dashboard = () => {
       <div className="space-y-6 pb-8">
         {/* Top Header */}
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-condensed font-bold uppercase tracking-wider text-white">
-              Dashboard
-            </h1>
-            <p className="text-xs text-zinc-400 mt-0.5">
-              Welcome back, {data.profile?.name || user?.full_name || 'Player'}
-            </p>
+          <div className="flex items-center gap-3">
+            <Logo variant="icon" size="sm" linkTo={false} />
+            <div>
+              <h1 className="text-2xl font-condensed font-bold uppercase tracking-wider text-white">
+                Dashboard
+              </h1>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Welcome back, {data.profile?.name || user?.full_name || 'Player'}
+              </p>
+            </div>
+          </div>
+          <div className="hidden sm:flex items-center gap-2">
+            <Logo variant="badge" size="xs" linkTo={false} />
           </div>
         </div>
 
@@ -433,13 +436,16 @@ export const Dashboard = () => {
     return (
       <div className="space-y-6 pb-8">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-condensed font-bold uppercase tracking-wider text-white">
-              Organizer Dashboard
-            </h1>
-            <p className="text-xs text-zinc-400 mt-0.5">
-              Championship schedules, board pairings, player registrations and match results
-            </p>
+          <div className="flex items-center gap-3">
+            <Logo variant="icon" size="sm" linkTo={false} />
+            <div>
+              <h1 className="text-2xl font-condensed font-bold uppercase tracking-wider text-white">
+                Organizer Dashboard
+              </h1>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Championship schedules, board pairings, player registrations and match results
+              </p>
+            </div>
           </div>
           <button
             type="button"
@@ -566,13 +572,19 @@ export const Dashboard = () => {
   return (
     <div className="space-y-6 pb-8">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-condensed font-bold uppercase tracking-wider text-white">
-            Admin Dashboard
-          </h1>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            System administration console, approvals queue, and audit trail
-          </p>
+        <div className="flex items-center gap-3">
+          <Logo variant="icon" size="sm" linkTo={false} />
+          <div>
+            <h1 className="text-2xl font-condensed font-bold uppercase tracking-wider text-white">
+              Admin Dashboard
+            </h1>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              System administration console, approvals queue, and audit trail
+            </p>
+          </div>
+        </div>
+        <div className="hidden sm:flex items-center gap-2">
+          <Logo variant="badge" size="xs" linkTo={false} />
         </div>
       </div>
 

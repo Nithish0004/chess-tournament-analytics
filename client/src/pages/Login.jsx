@@ -3,14 +3,11 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import {
   Lock,
-  Mail,
   User,
   Eye,
   EyeOff,
   AlertCircle,
-  ArrowRight,
-  RotateCw,
-  Check
+  RotateCw
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -146,23 +143,29 @@ export const Login = () => {
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#0d0d0d] text-white flex items-center justify-center p-4 sm:p-6 lg:p-8 relative selection:bg-white/20 selection:text-white">
-      {/* Background Subtle Gradient & Chess Atmosphere */}
-      <div className="fixed inset-0 pointer-events-none opacity-40 bg-[radial-gradient(circle_at_top,_var(--tw-gradient-stops))] from-[#222222] via-[#111111] to-[#0a0a0a]" />
+    <div className="min-h-screen w-full bg-[#101010] text-white flex items-center justify-center p-4 sm:p-6 lg:p-8 relative selection:bg-[#C6A15B]/30 selection:text-white">
+      {/* Background Subtle Gradient */}
+      <div className="fixed inset-0 pointer-events-none opacity-40 bg-[radial-gradient(circle_at_top,_var(--tw-gradient-stops))] from-[#242424] via-[#141414] to-[#0a0a0a]" />
 
-      {/* Main Two-Column Container */}
-      <div className="relative z-10 w-full max-w-5xl rounded-3xl bg-[#141414] border border-[#242424] shadow-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-2">
+      {/* Main Two-Column Container matching reference UI */}
+      <div className="relative z-10 w-full max-w-5xl rounded-[28px] bg-[#171717] border border-[#262626] shadow-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-2">
         {/* Left Column: Login Form */}
         <div className="p-8 sm:p-12 lg:p-14 flex flex-col justify-between">
           <div>
-            {/* Brand Logo & Tag */}
-            <Logo variant="horizontal" size="md" linkTo="/" className="mb-8" />
+            {/* Official Brand Logo (Vertical Stacked, Left-Aligned) */}
+            <Logo
+              variant="vertical"
+              size="lg"
+              linkTo="/"
+              align="left"
+              className="mb-7"
+            />
 
             {/* Header Titles */}
             <div className="space-y-2 mb-8">
-              <h1 className="font-condensed text-3xl sm:text-4xl lg:text-[40px] font-black uppercase tracking-tight text-white leading-tight">
-                WELCOME BACK TO <br />
-                CHESS MAGIC
+              <h1 className="font-condensed text-3xl sm:text-4xl lg:text-[42px] font-black uppercase tracking-tight text-white leading-[1.08]">
+                WELCOME BACK <br />
+                TO CHESS MAGIC
               </h1>
               <p className="text-zinc-400 text-xs sm:text-sm font-normal">
                 Manage tournaments, track ratings and analyze performance.
@@ -215,7 +218,7 @@ export const Login = () => {
                     placeholder="Email or Username"
                     autoComplete="username email"
                     required
-                    className="w-full pl-10 pr-4 py-3 bg-[#181818] border border-[#2a2a2a] rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 transition-all"
+                    className="w-full pl-10 pr-4 py-3 bg-[#1F1F21] border border-[#2E2E30] rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-[#C6A15B] focus:ring-1 focus:ring-[#C6A15B]/30 transition-all font-sans"
                   />
                 </div>
               </div>
@@ -237,7 +240,7 @@ export const Login = () => {
                     placeholder="Password"
                     autoComplete="current-password"
                     required
-                    className="w-full pl-10 pr-11 py-3 bg-[#181818] border border-[#2a2a2a] rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 transition-all"
+                    className="w-full pl-10 pr-11 py-3 bg-[#1F1F21] border border-[#2E2E30] rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-[#C6A15B] focus:ring-1 focus:ring-[#C6A15B]/30 transition-all font-sans"
                   />
                   <button
                     type="button"
@@ -251,30 +254,36 @@ export const Login = () => {
               </div>
 
               {/* Remember Me & Forgot Password Row */}
-              <div className="flex items-center justify-between pt-1 pb-2">
+              <div className="flex items-center justify-between pt-1 pb-1">
                 <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-zinc-400 hover:text-zinc-300">
                   <input
                     type="checkbox"
                     checked={rememberMe}
                     onChange={(e) => setRememberMe(e.target.checked)}
-                    className="w-4 h-4 rounded bg-[#1c1c1c] border-[#333333] text-white focus:ring-0 focus:ring-offset-0 cursor-pointer accent-white"
+                    className="w-4 h-4 rounded bg-[#1c1c1c] border-[#333333] text-white focus:ring-0 focus:ring-offset-0 cursor-pointer accent-[#C6A15B]"
                   />
                   <span>Remember me</span>
                 </label>
 
-                <Link
-                  to="/forgot-password"
-                  className="text-xs text-zinc-400 hover:text-white transition-colors font-medium"
-                >
-                  Forgot Password?
-                </Link>
+                <div className="relative group">
+                  <button
+                    type="button"
+                    disabled
+                    className="text-xs text-zinc-500 hover:text-zinc-400 cursor-not-allowed font-medium transition-colors"
+                  >
+                    Forgot Password?
+                  </button>
+                  <div className="absolute right-0 bottom-full mb-1.5 hidden group-hover:flex items-center px-2.5 py-1 rounded-md bg-[#222225] border border-[#333336] text-[11px] text-zinc-300 font-medium whitespace-nowrap shadow-xl z-20 pointer-events-none">
+                    Coming soon
+                  </div>
+                </div>
               </div>
 
-              {/* Submit Button */}
+              {/* Submit Button (White/Light silver pill matching reference mockup) */}
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3.5 px-4 rounded-xl bg-white hover:bg-zinc-200 text-[#111111] font-bold text-sm tracking-wide transition-all shadow-md active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full py-3.5 px-4 rounded-xl bg-[#EFEFEF] hover:bg-white text-[#111111] font-bold text-sm tracking-wide transition-all shadow-md active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
               >
                 {loading ? (
                   <div className="w-4 h-4 border-2 border-zinc-900 border-t-transparent rounded-full animate-spin" />
@@ -284,71 +293,91 @@ export const Login = () => {
               </button>
             </form>
 
-            {/* Optional Google Login */}
+            {/* Google Sign-in (Disabled with Coming Soon tooltip) */}
             <div className="mt-6 space-y-4">
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-[#262626]"></div>
                 </div>
                 <div className="relative flex justify-center text-[11px] uppercase">
-                  <span className="bg-[#141414] px-3 text-zinc-500 font-semibold">
+                  <span className="bg-[#171717] px-3 text-zinc-500 font-semibold tracking-wider">
                     Or continue with
                   </span>
                 </div>
               </div>
 
-              <div className="flex justify-center w-full">
-                <GoogleLogin
-                  onSuccess={handleGoogleSuccess}
-                  onError={() => showToast('Google sign-in was cancelled', 'error')}
-                  theme="filled_black"
-                  shape="rectangular"
-                  width="100%"
-                />
+              <div className="relative group w-full">
+                <button
+                  type="button"
+                  disabled
+                  className="w-full py-2.5 px-4 rounded-xl bg-[#1c1c1e] border border-[#2a2a2e] text-zinc-400 font-medium text-xs flex items-center justify-center gap-2.5 cursor-not-allowed opacity-80"
+                >
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                    />
+                  </svg>
+                  <span>Continue with Google</span>
+                </button>
+                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 hidden group-hover:flex items-center px-2.5 py-1 rounded-md bg-[#222225] border border-[#333336] text-[11px] text-zinc-300 font-medium whitespace-nowrap shadow-xl z-20 pointer-events-none">
+                  Coming soon
+                </div>
               </div>
             </div>
           </div>
 
           {/* Footer Link */}
-          <div className="pt-8 text-center text-xs text-zinc-400 font-medium border-t border-[#222222] mt-6">
+          <div className="pt-6 text-center text-xs text-zinc-400 font-medium border-t border-[#222222] mt-6">
             <span>Don&apos;t have an account? </span>
             <Link
               to="/register"
-              className="text-white font-bold hover:underline ml-1"
+              className="text-white font-bold hover:text-[#C6A15B] transition-colors ml-1"
             >
               Sign Up
             </Link>
           </div>
         </div>
 
-        {/* Right Column: Premium 3D Chess King Illustration */}
-        <div className="hidden lg:relative lg:flex flex-col items-center justify-center bg-[#0d0d0d] overflow-hidden border-l border-[#222222]/80">
-          {/* Soft moody radial backdrop */}
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_#242424_0%,_#111111_60%,_#0a0a0a_100%)] opacity-80 pointer-events-none" />
+        {/* Right Column: Inset Chess Branding Visual matching reference UI */}
+        <div className="hidden lg:flex flex-col items-center justify-center m-4 rounded-2xl bg-[#0E0E10] border border-[#222225] overflow-hidden relative shadow-inner p-6 min-h-[520px]">
+          {/* Subtle moody radial backdrop */}
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_#242424_0%,_#111111_60%,_#0a0a0c_100%)] opacity-80 pointer-events-none" />
 
-          {/* Subtle diagonal pinstripes */}
+          {/* Subtle diagonal pinstripes matching reference mockup */}
           <div
-            className="absolute inset-0 opacity-[0.03] pointer-events-none"
+            className="absolute inset-0 opacity-[0.035] pointer-events-none"
             style={{
               backgroundImage: 'repeating-linear-gradient(45deg, #ffffff 0, #ffffff 1px, transparent 0, transparent 24px)'
             }}
           />
 
-          {/* Chess King Image */}
-          <div className="relative z-10 w-full h-full flex flex-col items-center justify-center p-8">
+          {/* 3D Chess King Graphic */}
+          <div className="relative z-10 w-full h-full flex flex-col items-center justify-center">
             <img
               src="/images/chess-king-dark.png"
-              alt="Chess King Dark 3D"
-              className="max-h-[460px] w-auto object-contain drop-shadow-[0_20px_35px_rgba(0,0,0,0.85)] filter contrast-[1.05]"
+              alt="Chess Magic 3D King"
+              className="max-h-[460px] w-auto object-contain drop-shadow-[0_25px_50px_rgba(0,0,0,0.95)] filter contrast-[1.05] hover:scale-[1.02] transition-transform duration-500 select-none"
               onError={(e) => {
-                // Fallback to jpg if png is not rendered
-                e.currentTarget.src = '/images/chess-king-dark.jpg';
+                e.currentTarget.src = '/images/logo.png';
               }}
             />
           </div>
 
           {/* Atmospheric bottom gradient */}
-          <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[#0a0a0a] via-transparent to-transparent pointer-events-none" />
+          <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-[#0E0E10] via-transparent to-transparent pointer-events-none" />
         </div>
       </div>
     </div>

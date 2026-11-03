@@ -115,18 +115,19 @@ export const CountrySelect = ({
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-label="Select Country"
-        className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl bg-[#161616] border text-left transition-all outline-none ${
+        className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl bg-[#1F1F21] border text-left transition-all outline-none ${
           error
             ? 'border-rose-500/80 focus:ring-1 focus:ring-rose-500'
             : isOpen
-            ? 'border-white/40 ring-1 ring-white/20'
-            : 'border-[#2a2a2a] hover:border-[#3d3d3d] focus:border-white/40'
+            ? 'border-[#C6A15B] ring-1 ring-[#C6A15B]/30'
+            : 'border-[#2E2E30] hover:border-[#3E3E42] focus:border-[#C6A15B]'
         } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
         <div className="flex items-center gap-2.5 truncate">
+          <Globe className="w-4 h-4 text-zinc-500 shrink-0" />
           {selectedCountry ? (
             <>
-              <span className="text-xl leading-none select-none shrink-0" aria-hidden="true">
+              <span className="text-lg leading-none select-none shrink-0" aria-hidden="true">
                 {selectedCountry.flag}
               </span>
               <span className="text-sm font-medium text-white truncate">
@@ -137,10 +138,7 @@ export const CountrySelect = ({
               </span>
             </>
           ) : (
-            <div className="flex items-center gap-2 text-zinc-500 text-sm">
-              <Globe className="w-4 h-4 text-zinc-500 shrink-0" />
-              <span>{placeholder}</span>
-            </div>
+            <span className="text-zinc-500 text-sm">{placeholder}</span>
           )}
         </div>
 

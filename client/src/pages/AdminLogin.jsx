@@ -142,6 +142,9 @@ export const AdminLogin = () => {
         <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200/90 p-8 sm:p-10 shadow-2xl text-slate-900">
           {/* Header */}
           <div className="text-center mb-6">
+            <div className="lg:hidden flex justify-center mb-4">
+              <Logo variant="horizontal" size="sm" linkTo="/" />
+            </div>
             <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-red-50 border border-red-200 text-red-600 mb-3 shadow-xs">
               <ShieldAlert className="w-7 h-7" />
             </div>

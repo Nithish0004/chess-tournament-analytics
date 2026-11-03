@@ -459,6 +459,14 @@ export const register = async (req, res, next) => {
 
     const newUserId = userInsert.insertId;
 
+    // Insert into user_account (additive accounts schema)
+    await conn.query(
+      `INSERT INTO user_account (username, email, password_hash, role, player_id)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), player_id = VALUES(player_id)`,
+      [username, email, passwordHash, role, playerId]
+    );
+
     // Create 24h verification token
     const { token } = await createAuthToken(conn, {
       userId: newUserId,
@@ -640,6 +648,84 @@ export const login = async (req, res, next) => {
     );
 
     if (rows.length === 0) {
+      // Check user_account table (additive accounts schema)
+      const [accRows] = await pool.query(
+        `SELECT account_id, username, email, password_hash, role, player_id, created_at
+         FROM user_account
+         WHERE LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)`,
+        [identifier, identifier]
+      );
+
+      if (accRows.length > 0) {
+        const acc = accRows[0];
+        const isMatch = await bcrypt.compare(password, acc.password_hash);
+        if (!isMatch) {
+          return res.status(401).json({ error: 'Invalid email or password' });
+        }
+        const token = signToken({
+          user_id: acc.account_id,
+          role: acc.role,
+          player_id: acc.player_id
+        });
+        const permissions = getPermissions(acc.role, 'APPROVED');
+        return res.status(200).json({
+          message: 'Login successful',
+          token,
+          user: {
+            user_id: acc.account_id,
+            account_id: acc.account_id,
+            email: acc.email,
+            username: acc.username,
+            full_name: acc.username,
+            role: acc.role,
+            status: 'ACTIVE',
+            approval_status: 'APPROVED',
+            approval_note: null,
+            country_code: null,
+            email_verified: 1,
+            player_id: acc.player_id,
+            permissions
+          }
+        });
+      }
+
+      // Check admin_user table (legacy admin accounts)
+      const [adminRows] = await pool.query(
+        'SELECT admin_id, username, password_hash, role FROM admin_user WHERE LOWER(username) = LOWER(?)',
+        [identifier]
+      );
+      if (adminRows.length > 0) {
+        const admin = adminRows[0];
+        const isMatch = await bcrypt.compare(password, admin.password_hash);
+        if (!isMatch) {
+          return res.status(401).json({ error: 'Invalid email or password' });
+        }
+        const token = signToken({
+          user_id: admin.admin_id,
+          role: admin.role || 'ADMIN',
+          player_id: null
+        });
+        const permissions = getPermissions(admin.role || 'ADMIN', 'APPROVED');
+        return res.status(200).json({
+          message: 'Login successful',
+          token,
+          user: {
+            user_id: admin.admin_id,
+            account_id: admin.admin_id,
+            email: `${admin.username}@chess.admin`,
+            username: admin.username,
+            full_name: admin.username,
+            role: admin.role || 'ADMIN',
+            status: 'ACTIVE',
+            approval_status: 'APPROVED',
+            approval_note: null,
+            email_verified: 1,
+            player_id: null,
+            permissions
+          }
+        });
+      }
+
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 

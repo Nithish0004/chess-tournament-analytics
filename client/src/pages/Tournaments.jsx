@@ -19,6 +19,7 @@ import { useToast } from '../context/ToastContext';
 import { Badge } from '../components/Badge';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
+import { LoadingScreen } from '../components/LoadingScreen';
 
 export const Tournaments = ({ defaultOpenCreate = false }) => {
   const [searchParams] = useSearchParams();
@@ -193,10 +194,7 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
 
       {/* Tournament Cards Grid */}
       {loading ? (
-        <div className="min-h-[40vh] flex flex-col items-center justify-center gap-3 text-zinc-500">
-          <Loader2 className="w-8 h-8 animate-spin text-[#C6A15B]" />
-          <p className="text-xs font-semibold text-zinc-400">Loading tournaments...</p>
-        </div>
+        <LoadingScreen message="Loading official tournaments..." />
       ) : filteredTournaments.length === 0 ? (
         <EmptyState
           icon={Trophy}
@@ -221,9 +219,12 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
                   {/* Decorative Chess Card Header Banner */}
                   <div className="h-28 bg-[#171717] border-b border-[#2a2a2a] relative overflow-hidden flex items-center justify-center">
                     <img
-                      src="/images/chess-king-dark.png"
-                      alt="Chess Emblem"
-                      className="h-24 w-auto object-contain opacity-40 group-hover:opacity-75 transition-opacity duration-300"
+                      src="/images/logo-512.png"
+                      alt="Chess Magic Emblem"
+                      className="h-24 w-auto object-contain opacity-50 group-hover:opacity-85 transition-opacity duration-300"
+                      onError={(e) => {
+                        e.currentTarget.src = '/images/logo.png';
+                      }}
                     />
                     <div className="absolute top-3 right-3">
                       <Badge variant={t.status} size="sm">

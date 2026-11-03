@@ -56,6 +56,7 @@ import { Badge } from '../components/Badge';
 import { Avatar } from '../components/Avatar';
 import { Modal } from '../components/Modal';
 import { TournamentStatusButton } from '../components/TournamentStatusButton';
+import { LoadingScreen } from '../components/LoadingScreen';
 import { getCountryFlag } from '../utils/countryFlags';
 
 export const TournamentDetail = () => {
@@ -286,12 +287,7 @@ export const TournamentDetail = () => {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 text-zinc-500">
-        <Loader2 className="w-8 h-8 animate-spin text-[#C6A15B]" />
-        <p className="text-xs font-semibold text-zinc-400">Loading tournament...</p>
-      </div>
-    );
+    return <LoadingScreen message="Loading tournament details..." />;
   }
 
   if (!tournament) {
@@ -334,11 +330,14 @@ export const TournamentDetail = () => {
       {/* Hero Banner with Chess Backdrop matching Row 2 Col 2 */}
       <div className="relative rounded-2xl bg-[#171717] border border-[#303030] overflow-hidden p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-sm">
         {/* Subtle Background Chess Graphic */}
-        <div className="absolute right-0 top-0 bottom-0 w-1/2 pointer-events-none overflow-hidden opacity-25">
+        <div className="absolute right-0 top-0 bottom-0 w-1/2 pointer-events-none overflow-hidden opacity-30 flex items-center justify-end pr-6">
           <img
-            src="/images/chess-king-dark.png"
-            alt=""
-            className="h-full w-full object-contain object-right"
+            src="/images/logo-512.png"
+            alt="Chess Magic"
+            className="h-full max-h-48 w-auto object-contain object-right"
+            onError={(e) => {
+              e.currentTarget.src = '/images/logo.png';
+            }}
           />
         </div>
 

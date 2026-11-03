@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600" width="100%" height="100%">
+
+  <defs>
+    <radialGradient id="spotlightGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#C6A15B" stop-opacity="0.35"/>
+      <stop offset="50%" stop-color="#C6A15B" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="floorShadow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.9"/>
+      <stop offset="70%" stop-color="#000000" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFE082"/>
+      <stop offset="30%" stop-color="#C6A15B"/>
+      <stop offset="70%" stop-color="#8C6D2D"/>
+      <stop offset="100%" stop-color="#DFB86C"/>
+    </linearGradient>
+    <linearGradient id="darkMetalGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3A3A3D"/>
+      <stop offset="35%" stop-color="#222225"/>
+      <stop offset="65%" stop-color="#18181A"/>
+      <stop offset="100%" stop-color="#2C2C30"/>
+    </linearGradient>
+    <linearGradient id="silverGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1C1C1E"/>
+      <stop offset="25%" stop-color="#48484E"/>
+      <stop offset="50%" stop-color="#D1D1D6"/>
+      <stop offset="75%" stop-color="#323236"/>
+      <stop offset="100%" stop-color="#141416"/>
+    </linearGradient>
+    <filter id="dropGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.85"/>
+    </filter>
+  </defs>
+
+  <circle cx="200" cy="280" r="180" fill="url(#spotlightGlow)" />
+  <ellipse cx="200" cy="560" rx="140" ry="24" fill="url(#floorShadow)" />
+  
+  <g filter="url(#dropGlow)">
+    <!-- Base -->
+    <path d="M110 540 C110 520 130 515 150 510 L250 510 C270 515 290 520 290 540 C290 552 270 558 200 558 C130 558 110 552 110 540 Z" fill="url(#silverGrad)" />
+    <path d="M120 525 L280 525 L270 510 L130 510 Z" fill="url(#goldGrad)" />
+    <path d="M135 510 L265 510 L255 470 L145 470 Z" fill="url(#darkMetalGrad)" stroke="#C6A15B" stroke-width="1" />
+    
+    <!-- Stallion Head & Mane -->
+    <path d="M145 470 
+             C140 430 130 380 120 330 
+             C110 280 100 230 120 180 
+             C135 140 160 110 185 85 
+             C195 75 210 70 215 80 
+             C218 88 215 105 210 120
+             C225 110 245 115 255 135
+             C265 155 270 190 275 220
+             C280 240 260 260 240 270
+             C215 280 195 300 200 330
+             C205 350 220 365 240 375
+             C260 385 275 425 255 470 Z" 
+          fill="url(#silverGrad)" stroke="#C6A15B" stroke-width="1.5" />
+    
+    <!-- Gold Mane Accents -->
+    <path d="M180 85 C160 120 145 170 135 220" stroke="url(#goldGrad)" stroke-width="6" stroke-linecap="round" fill="none" />
+    <path d="M170 115 C150 155 138 205 130 260" stroke="url(#goldGrad)" stroke-width="5" stroke-linecap="round" fill="none" />
+    <path d="M160 160 C145 200 135 250 130 300" stroke="url(#goldGrad)" stroke-width="5" stroke-linecap="round" fill="none" />
+    <path d="M150 220 C140 260 135 310 130 360" stroke="url(#goldGrad)" stroke-width="5" stroke-linecap="round" fill="none" />
+    
+    <!-- Ear -->
+    <path d="M190 75 L205 45 L215 75 Z" fill="url(#goldGrad)" stroke="#FFE082" stroke-width="1" />
+    
+    <!-- Eye -->
+    <ellipse cx="230" cy="145" rx="7" ry="10" fill="#101010" stroke="#C6A15B" stroke-width="2" />
+    <circle cx="232" cy="143" r="3" fill="#FFE082" />
+    
+    <!-- Nostril & Muzzle lines -->
+    <path d="M260 220 C265 235 255 245 245 245" stroke="#C6A15B" stroke-width="2" fill="none" />
+  </g>
+</svg>

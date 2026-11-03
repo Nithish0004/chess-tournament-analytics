@@ -28,6 +28,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Avatar } from '../components/Avatar';
 import { EmptyState } from '../components/EmptyState';
+import { LoadingScreen } from '../components/LoadingScreen';
 import { getCountryFlag } from '../utils/countryFlags';
 
 export const Analytics = () => {
@@ -177,10 +178,7 @@ export const Analytics = () => {
       </div>
 
       {loadingAnalytics ? (
-        <div className="min-h-[50vh] flex flex-col items-center justify-center gap-3 text-zinc-500">
-          <Loader2 className="w-8 h-8 animate-spin text-[#C6A15B]" />
-          <p className="text-xs font-semibold text-zinc-400">Loading performance data...</p>
-        </div>
+        <LoadingScreen message="Analyzing player performance datasets..." />
       ) : activeTab === 'performance' ? (
         <div className="space-y-6">
           {/* Top 3 Stat Cards matching Row 3 Col 3: Win Rate, Draw Rate, Loss Rate */}

@@ -7,6 +7,7 @@ import { TopBar } from './components/TopBar';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 import { Dashboard } from './pages/Dashboard';
+import { Landing } from './pages/Landing';
 import { Login } from './pages/Login';
 import { AdminLogin } from './pages/AdminLogin';
 import { Register } from './pages/Register';
@@ -144,6 +145,12 @@ function ProfileRedirect() {
 
 function AppContent() {
   const location = useLocation();
+  const { isLoggedIn } = useAuth();
+
+  // If public landing page: render standalone full-width Landing without sidebar & topbar
+  if (location.pathname === '/landing' || (location.pathname === '/' && !isLoggedIn)) {
+    return <Landing />;
+  }
 
   // If on authentication routes, render standalone split-screen without sidebar & topbar
   if (['/login', '/login/admin', '/admin/login', '/register', '/verify-email', '/forgot-password', '/reset-password', '/complete-profile'].includes(location.pathname)) {
@@ -230,6 +237,14 @@ function AppContent() {
             {/* Everyone logged in (ADMIN, ORGANIZER, PLAYER) */}
             <Route
               path="/"
+              element={
+                <ProtectedRoute>
+                  <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard"
               element={
                 <ProtectedRoute>
                   <Dashboard />

@@ -26,6 +26,7 @@ import { useToast } from '../context/ToastContext';
 import { Avatar } from '../components/Avatar';
 import { Modal } from '../components/Modal';
 import { CountrySelect } from '../components/CountrySelect';
+import { LoadingScreen } from '../components/LoadingScreen';
 import { getCountryFlag, getCountryName } from '../utils/countryFlags';
 
 export const PlayerProfile = () => {
@@ -83,12 +84,7 @@ export const PlayerProfile = () => {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 text-zinc-500">
-        <Loader2 className="w-8 h-8 animate-spin text-[#C6A15B]" />
-        <p className="text-xs font-semibold text-zinc-400">Loading profile...</p>
-      </div>
-    );
+    return <LoadingScreen message="Loading player profile..." />;
   }
 
   if (!data || !data.player) {
