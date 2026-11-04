@@ -82,3 +82,4 @@ export const HowItWorks = () => {
     </section>
   );
 };
+

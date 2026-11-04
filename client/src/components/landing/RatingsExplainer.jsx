@@ -157,3 +157,4 @@ export const RatingsExplainer = () => {
     </section>
   );
 };
+
