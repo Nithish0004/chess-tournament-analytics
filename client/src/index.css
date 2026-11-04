@@ -5,11 +5,88 @@
 :root {
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   color-scheme: dark;
+  --bg-landing: #0b0b0c;
+  --card-landing: #131314;
+  --gold-from: #e8c27a;
+  --gold-to: #c9993f;
+  --gold-border: rgba(232, 194, 122, 0.18);
+  --gold-glow: rgba(232, 194, 122, 0.25);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+.font-serif {
+  font-family: 'Playfair Display', 'Cormorant Garamond', Georgia, serif;
 }
 
 .font-condensed {
   font-family: 'Barlow Condensed', 'Oswald', sans-serif;
   letter-spacing: 0.03em;
+}
+
+/* Gold Gradient Text */
+.text-gold-gradient {
+  background: linear-gradient(135deg, #f5d898 0%, #e8c27a 45%, #c9993f 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Gold Gradient Button */
+.btn-gold {
+  background: linear-gradient(135deg, #e8c27a 0%, #d8ad56 50%, #c9993f 100%);
+  color: #111111;
+  font-weight: 600;
+  box-shadow: 0 4px 20px rgba(201, 153, 63, 0.25);
+  transition: all 0.25s ease;
+}
+
+.btn-gold:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 6px 24px rgba(201, 153, 63, 0.4);
+  transform: translateY(-1px);
+}
+
+.btn-gold:active {
+  transform: translateY(0);
+}
+
+/* Low-opacity Gold Border Card */
+.card-gold-border {
+  background: #131314;
+  border: 1px solid rgba(232, 194, 122, 0.16);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-gold-border:hover {
+  border-color: rgba(232, 194, 122, 0.35);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7), 0 0 25px -5px rgba(232, 194, 122, 0.12);
+}
+
+/* Thin diagonal gold lines decorative framing */
+.diagonal-gold-frame {
+  position: relative;
+}
+
+.diagonal-gold-frame::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(232, 194, 122, 0.45));
+}
+
+.diagonal-gold-frame::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 1px;
+  height: 120px;
+  background: linear-gradient(180deg, rgba(232, 194, 122, 0.45), transparent);
 }
 
 code, pre {

@@ -7,10 +7,14 @@ export default {
   theme: {
     extend: {
       colors: {
+        nearblack: '#0b0b0c',
+        carddark: '#131314',
         dark: {
           bg: '#0f0f10',
+          landingBg: '#0b0b0c',
           surface: '#161617',
           card: '#161617',
+          cardSurface: '#131314',
           elevated: '#1c1c1e',
           sidebar: '#141415',
           border: '#262628',
@@ -18,14 +22,21 @@ export default {
           muted: '#38383a'
         },
         gold: {
-          DEFAULT: '#C6A15B',
-          light: '#DFB86C',
-          dark: '#A4823E',
+          DEFAULT: '#e8c27a',
+          light: '#f5d898',
+          dark: '#c9993f',
+          from: '#e8c27a',
+          to: '#c9993f',
           50: '#FDF9F0',
           100: '#FBF2E0',
+          200: '#F5E3BD',
+          300: '#ECD096',
+          400: '#E8C27A',
           500: '#C6A15B',
           600: '#B08B45',
-          700: '#8F6E30'
+          700: '#8F6E30',
+          line: 'rgba(232, 194, 122, 0.18)',
+          glow: 'rgba(232, 194, 122, 0.25)',
         },
         chess: {
           50: '#f6f7f9',
@@ -43,6 +54,7 @@ export default {
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
+        serif: ['Playfair Display', 'Cormorant Garamond', 'Georgia', 'serif'],
         condensed: ['Barlow Condensed', 'Oswald', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
       },

@@ -32,8 +32,8 @@ api.interceptors.response.use(
     // Attach clean error message to error object
     error.userMessage = serverMessage;
 
-    // Dispatch global toast event with server message for every error response
-    if (error.response && typeof window !== 'undefined') {
+    // Dispatch global toast event with server message for error responses unless skipToast is set
+    if (!error.config?.skipToast && error.response && typeof window !== 'undefined') {
       window.dispatchEvent(
         new CustomEvent('app:toast', {
           detail: { message: serverMessage, type: 'error' }

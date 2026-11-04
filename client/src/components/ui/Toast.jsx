@@ -44,3 +44,4 @@ export const Toast = ({ id, message, type = 'info', onClose }) => {
 };
 
 export default Toast;
+

@@ -45,3 +45,4 @@ export const TableCell = ({ children, className = '' }) => (
 );
 
 export default Table;
+
