@@ -9,6 +9,7 @@ import {
   TrendingDown,
   Sparkles
 } from 'lucide-react';
+import { ratingDeltaClass, formatRatingDelta } from '../utils/rating';
 import {
   getTournamentsApi,
   getRoundsApi,
@@ -386,11 +387,11 @@ export const Results = () => {
                   </p>
                 </div>
                 <span
-                  className={`font-black font-mono text-xs px-2.5 py-1 rounded-lg ${
-                    eloEstimate.changeWhite >= 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
-                  }`}
+                  className={`font-black font-mono text-xs px-2.5 py-1 rounded-lg border ${ratingDeltaClass(
+                    eloEstimate.changeWhite
+                  )}`}
                 >
-                  {eloEstimate.changeWhite >= 0 ? `+${eloEstimate.changeWhite}` : eloEstimate.changeWhite}
+                  {formatRatingDelta(eloEstimate.changeWhite)}
                 </span>
               </div>
 
@@ -403,11 +404,11 @@ export const Results = () => {
                   </p>
                 </div>
                 <span
-                  className={`font-black font-mono text-xs px-2.5 py-1 rounded-lg ${
-                    eloEstimate.changeBlack >= 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
-                  }`}
+                  className={`font-black font-mono text-xs px-2.5 py-1 rounded-lg border ${ratingDeltaClass(
+                    eloEstimate.changeBlack
+                  )}`}
                 >
-                  {eloEstimate.changeBlack >= 0 ? `+${eloEstimate.changeBlack}` : eloEstimate.changeBlack}
+                  {formatRatingDelta(eloEstimate.changeBlack)}
                 </span>
               </div>
             </div>

@@ -10,7 +10,7 @@ const api = axios.create({
 // Request interceptor: attach token to every request if available
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('chess_token');
+    const token = localStorage.getItem('chess_token') || sessionStorage.getItem('chess_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }

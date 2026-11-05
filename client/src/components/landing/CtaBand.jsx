@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, LogIn } from 'lucide-react';
+import { PieceImage } from '../ui/PieceImage';
 
 export const CtaBand = () => {
   const navigate = useNavigate();
@@ -11,20 +12,12 @@ export const CtaBand = () => {
         {/* Soft Ambient Gold Glow */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-[radial-gradient(ellipse,_rgba(232,194,122,0.12)_0%,_transparent_70%)] pointer-events-none filter blur-3xl -z-10" />
 
-        {/* Decorative Pawn Army and Queen Artwork at edges */}
-        <div className="absolute top-6 left-6 w-24 h-24 opacity-15 pointer-events-none hidden sm:block">
-          <img
-            src="/src/assets/pieces/queen.svg"
-            alt="Chess Queen"
-            className="w-full h-full object-contain filter drop-shadow-[0_0_15px_#e8c27a]"
-          />
+        {/* Decorative 3D Cutout Queen and King at edges */}
+        <div className="absolute -bottom-6 -left-4 w-32 h-44 opacity-25 pointer-events-none hidden md:block">
+          <PieceImage piece="queen" size={160} glow="gold" reflection={false} tilt={false} />
         </div>
-        <div className="absolute bottom-6 right-6 w-24 h-24 opacity-15 pointer-events-none hidden sm:block">
-          <img
-            src="/src/assets/pieces/king.svg"
-            alt="Chess King"
-            className="w-full h-full object-contain filter drop-shadow-[0_0_15px_#e8c27a]"
-          />
+        <div className="absolute -bottom-6 -right-4 w-32 h-44 opacity-25 pointer-events-none hidden md:block">
+          <PieceImage piece="king-gold" size={170} glow="gold" reflection={false} tilt={false} />
         </div>
 
         <div className="max-w-2xl mx-auto space-y-6 relative z-10">
@@ -38,24 +31,23 @@ export const CtaBand = () => {
           </h2>
 
           <p className="text-zinc-300 text-xs sm:text-base leading-relaxed font-sans max-w-lg mx-auto">
-            Whether you want to climb the Elo leaderboard or host championship tournaments, Chess Magic provides the tools to power your chess journey.
+            Whether you want to climb the Elo leaderboard or host tournaments, Chess Magic provides the tools to power your chess journey.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 pt-4">
             <button
-              onClick={() => navigate('/register')}
+              onClick={() => navigate('/register?role=player')}
               className="btn-gold w-full sm:w-auto px-8 py-3.5 rounded-xl text-xs sm:text-sm font-bold tracking-wide flex items-center justify-center gap-2 group shadow-xl"
             >
-              <span>Get Started Free</span>
+              <span>Register as Player</span>
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </button>
 
             <button
-              onClick={() => navigate('/login')}
+              onClick={() => navigate('/register?role=organizer')}
               className="w-full sm:w-auto px-7 py-3.5 rounded-xl border border-white/20 hover:border-[#e8c27a]/60 text-xs sm:text-sm font-semibold text-zinc-200 hover:text-white bg-white/[0.03] hover:bg-white/[0.08] transition-all flex items-center justify-center gap-2"
             >
-              <LogIn className="w-4 h-4 text-zinc-400" />
-              <span>Sign In</span>
+              <span>Register as Organizer</span>
             </button>
           </div>
         </div>
@@ -64,3 +56,4 @@ export const CtaBand = () => {
   );
 };
 
+export default CtaBand;

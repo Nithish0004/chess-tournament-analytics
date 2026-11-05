@@ -22,6 +22,12 @@ Content-Type: application/json
 ### Store Admin Auth Token
 @adminToken = {{adminLogin.response.body.token}}
 
+# 1.1b Check Username Availability (real-time debounced validation)
+GET {{baseUrl}}/api/auth/check-username?username=hikaru_nakamura
+
+# 1.1c Check Email Availability (real-time debounced validation)
+GET {{baseUrl}}/api/auth/check-email?email=hikaru@chess.example
+
 # 1.2 Register a new PLAYER
 # Fields: full_name, email, password, confirm_password, date_of_birth (age >= 5),
 # gender (MALE|FEMALE|OTHER|UNDISCLOSED), phone (optional), country,
@@ -116,6 +122,17 @@ Content-Type: application/json
 {
   "username": "admin",
   "password": "{{adminPassword}}"
+}
+
+# 1.6e Login by Identifier (accepts email or username under identifier field)
+# @name identifierLogin
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "identifier": "hikaru_nakamura",
+  "password": "PlayerPass123!",
+  "remember_me": true
 }
 
 ### Store Player Token

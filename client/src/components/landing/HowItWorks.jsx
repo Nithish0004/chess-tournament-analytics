@@ -1,34 +1,31 @@
 import React from 'react';
+import { PieceImage } from '../ui/PieceImage';
 
 export const HowItWorks = () => {
   const steps = [
     {
       num: '01',
       title: 'Register',
-      desc: 'Create your account in seconds as a competitive player or tournament arbiter.',
-      piece: '/src/assets/pieces/pawn.svg',
-      pieceName: 'Pawn',
+      desc: 'Create your account in seconds as a competitive player or tournament organizer.',
+      piece: 'pawn',
     },
     {
       num: '02',
       title: 'Join a Tournament',
-      desc: 'Browse open Swiss championships, knockout cups and blitz leagues with instant enrollment.',
-      piece: '/src/assets/pieces/knight.svg',
-      pieceName: 'Knight',
+      desc: 'Explore active tournaments and scheduled open championships across diverse formats.',
+      piece: 'knight-dark',
     },
     {
       num: '03',
       title: 'Play & Record Results',
-      desc: 'Compete on board pairings. Arbiters verify official White, Black, or Draw outcomes.',
-      piece: '/src/assets/pieces/rook.svg',
-      pieceName: 'Rook',
+      desc: 'Compete on designated boards. Organizers record verified White, Black, or Draw outcomes.',
+      piece: 'rook',
     },
     {
       num: '04',
       title: 'Watch Your Rating Grow',
-      desc: 'Instant FIDE Elo updates, real-time leaderboard climbs, and career analytics.',
-      piece: '/src/assets/pieces/king.svg',
-      pieceName: 'King',
+      desc: 'Instant Elo rating updates (K = 32), real-time leaderboard climbs, and performance stats.',
+      piece: 'king-gold',
     },
   ];
 
@@ -47,25 +44,27 @@ export const HowItWorks = () => {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 relative">
-        {/* Subtle connecting gold line on desktop */}
+        {/* Connecting gold line on desktop */}
         <div className="hidden lg:block absolute top-1/3 left-12 right-12 h-[1px] bg-gradient-to-r from-transparent via-[#e8c27a]/20 to-transparent -z-10" />
 
         {steps.map((step) => (
           <div
             key={step.num}
-            className="card-gold-border rounded-2xl p-6 sm:p-7 flex flex-col items-center text-center relative group hover:-translate-y-1 transition-all duration-300"
+            className="card-gold-border rounded-2xl p-6 sm:p-7 flex flex-col items-center text-center relative group hover:-translate-y-1.5 transition-all duration-300"
           >
             {/* Step Number Pill */}
             <span className="text-[10px] font-mono font-bold tracking-widest text-[#e8c27a] px-2.5 py-0.5 rounded-full bg-[#e8c27a]/10 border border-[#e8c27a]/25 mb-4">
               STEP {step.num}
             </span>
 
-            {/* Piece Emblem Spotlight */}
-            <div className="w-16 h-16 rounded-2xl bg-[#18181b] border border-[#e8c27a]/25 flex items-center justify-center p-3.5 mb-5 shadow-[0_0_20px_rgba(232,194,122,0.15)] group-hover:border-[#e8c27a]/50 transition-colors">
-              <img
-                src={step.piece}
-                alt={step.pieceName}
-                className="w-full h-full object-contain filter drop-shadow-[0_2px_8px_rgba(232,194,122,0.4)]"
+            {/* 3D Cutout Piece */}
+            <div className="h-24 flex items-center justify-center mb-4 transition-transform duration-300 group-hover:scale-110">
+              <PieceImage
+                piece={step.piece}
+                size={85}
+                glow="gold"
+                reflection={false}
+                tilt={false}
               />
             </div>
 
@@ -83,3 +82,4 @@ export const HowItWorks = () => {
   );
 };
 
+export default HowItWorks;

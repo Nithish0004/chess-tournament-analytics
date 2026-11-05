@@ -61,24 +61,24 @@ export const TopPlayersPreview = () => {
   const getRankBadge = (rank) => {
     if (rank === 1) {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-[#e8c27a]/20 text-[#e8c27a] border border-[#e8c27a]/40 shadow-[0_0_10px_rgba(232,194,122,0.3)]">
-          <img src="/src/assets/pieces/king.svg" alt="King" className="w-3.5 h-3.5" />
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-[#e8c27a]/20 text-[#e8c27a] border border-[#e8c27a]/40 shadow-[0_0_10px_rgba(232,194,122,0.3)]">
+          <img src="/images/pieces/king-gold.webp" alt="Gold King" className="w-3.5 h-3.5 object-contain" />
           <span>#1</span>
         </span>
       );
     }
     if (rank === 2) {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-zinc-400/20 text-zinc-200 border border-zinc-400/30">
-          <img src="/src/assets/pieces/queen.svg" alt="Queen" className="w-3.5 h-3.5" />
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-zinc-400/20 text-zinc-200 border border-zinc-400/30">
+          <img src="/images/pieces/queen.webp" alt="Queen" className="w-3.5 h-3.5 object-contain" />
           <span>#2</span>
         </span>
       );
     }
     if (rank === 3) {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-700/25 text-amber-300 border border-amber-600/30">
-          <img src="/src/assets/pieces/rook.svg" alt="Rook" className="w-3.5 h-3.5" />
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-700/25 text-amber-300 border border-amber-600/30">
+          <img src="/images/pieces/rook.webp" alt="Rook" className="w-3.5 h-3.5 object-contain" />
           <span>#3</span>
         </span>
       );
@@ -96,7 +96,7 @@ export const TopPlayersPreview = () => {
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-8 sm:mb-10 text-center sm:text-left">
         <div className="space-y-1.5">
           <span className="text-[11px] sm:text-xs font-condensed font-bold uppercase tracking-[0.2em] text-[#e8c27a] block">
-            OFFICIAL FIDE CALIBRATION
+            GLOBAL ELO RATINGS (K = 32)
           </span>
           <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-medium text-white tracking-tight">
             Championship Leaderboard

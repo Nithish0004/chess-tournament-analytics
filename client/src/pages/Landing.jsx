@@ -19,11 +19,11 @@ export const Landing = () => {
       {/* Subtle global ambient background glow */}
       <div className="fixed inset-0 pointer-events-none opacity-30 bg-[radial-gradient(ellipse_at_top,_#1a1917_0%,_#0f0f10_50%,_#0b0b0c_100%)] -z-20" />
 
-      {/* 1. Sticky Navbar */}
+      {/* 1. Fixed Navbar */}
       <LandingNavbar />
 
       {/* Main Content Sections */}
-      <main>
+      <main className="pt-20 sm:pt-24">
         {/* 2. Hero Section */}
         <Hero />
 

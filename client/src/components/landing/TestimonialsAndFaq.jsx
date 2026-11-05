@@ -7,55 +7,55 @@ export const TestimonialsAndFaq = () => {
   const testimonials = [
     {
       name: 'Aditya Vardhan',
-      role: 'FIDE Candidate Master & Club Player',
+      role: 'Club Competitor',
       quote:
-        'The Swiss pairing engine is completely seamless. No manual Excel errors, and our rating adjustments are calculated the instant the board clocks stop.',
+        'Recording match scorecards and tracking rating adjustments happens the instant the board clocks stop. The match progression tracking is clean and dependable.',
       rating: 5,
       tag: 'Verified Player',
     },
     {
       name: 'Karthik Ramanathan',
-      role: 'Bengaluru District Tournament Arbiter',
+      role: 'Tournament Director',
       quote:
-        'Managing 120-player Swiss brackets used to be exhausting. With Chess Magic, tiebreaks like Buchholz and Sonneborn-Berger update automatically on the big screen.',
+        'Managing multiple rounds and recording match outcomes is straightforward. Leaderboard standings and rating adjustments calculate automatically without hassle.',
       rating: 5,
       tag: 'Tournament Organizer',
     },
     {
       name: 'Gayathri Krishnan',
-      role: 'Inter-Collegiate Chess Champion',
+      role: 'Tournament Competitor',
       quote:
-        'The win distribution and color breakdown analytics gave me real insights into my weaknesses with Black. My rating improved by 120 points this season.',
+        'The win distribution and color breakdown analytics gave me real insights into my performance with Black. My rating improved by 120 points this season.',
       rating: 5,
-      tag: 'Competitive Competitor',
+      tag: 'Competitive Player',
     },
   ];
 
   const faqs = [
     {
       q: 'Is Chess Magic free to join?',
-      a: 'Yes! Registering an account, joining official open tournaments, viewing leaderboards, and tracking your Elo rating history is 100% free for all players.',
+      a: 'Yes! Registering an account, viewing active tournaments, inspecting championship leaderboards, and tracking your Elo rating history is 100% free for all players.',
     },
     {
       q: 'How are player ratings calculated?',
-      a: 'Ratings use the standard FIDE Elo formula with a standard K-factor of 32 for tournament games. Your rating adjustments depend on the exact rating difference between you and your opponent.',
+      a: 'Ratings are calculated using the Elo rating system (K = 32). Your rating adjustments depend on the exact rating difference between you and your opponent and the recorded game outcome.',
     },
     {
       q: 'Who can create tournaments?',
-      a: 'Any verified user registered as a Tournament Organizer or Administrator can create tournaments, configure Swiss or round-robin formats, manage registrations, and generate board pairings.',
+      a: 'Any user registered as a Tournament Organizer or Administrator can create tournaments, configure match rounds, register participants, and record verified results.',
     },
     {
-      q: 'How are game results verified?',
-      a: 'Match outcomes (White win, Black win, or Draw) are recorded and verified by appointed arbiters and tournament directors to ensure 100% fair play and prevent rating manipulation.',
+      q: 'How are game results recorded?',
+      a: 'Match outcomes (White win, Black win, or Draw) are entered by tournament directors, triggering instant mathematical rating updates and leaderboard recalculations.',
     },
     {
       q: 'How do tournament predictions work?',
-      a: 'Our statistical machine learning engine analyzes historical head-to-head records, recent Elo trajectories, color biases, and opponent strength to forecast expected tournament score distributions.',
+      a: 'Our statistical machine learning engine analyzes historical player records, recent rating trajectories, color performance, and opponent strength to forecast expected tournament outcomes.',
     },
   ];
 
   return (
-    <section className="py-14 sm:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-16 sm:space-y-24">
+    <section id="faq" className="py-14 sm:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-16 sm:space-y-24">
       {/* 1. Testimonial Quote Cards */}
       <div className="space-y-8">
         <div className="text-center max-w-2xl mx-auto space-y-2">
@@ -63,10 +63,10 @@ export const TestimonialsAndFaq = () => {
             COMMUNITY PERSPECTIVES
           </span>
           <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-medium text-white tracking-tight">
-            Trusted by Arbiters & Players
+            Trusted by Organizers & Players
           </h2>
           <p className="text-zinc-400 text-xs sm:text-sm">
-            Read what tournament arbiters and competitive competitors say about Chess Magic.
+            Read what tournament directors and competitive competitors say about Chess Magic.
           </p>
         </div>
 
@@ -78,27 +78,25 @@ export const TestimonialsAndFaq = () => {
             >
               <div className="space-y-4">
                 {/* 5 Stars */}
-                <div className="flex items-center gap-1 text-[#e8c27a]">
+                <div className="flex items-center gap-1">
                   {[...Array(t.rating)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-current" />
+                    <Star key={i} className="w-4 h-4 fill-[#e8c27a] text-[#e8c27a]" />
                   ))}
                 </div>
 
-                <p className="text-zinc-300 text-xs sm:text-sm leading-relaxed italic font-sans">
+                {/* Quote */}
+                <p className="text-zinc-300 text-xs sm:text-sm leading-relaxed italic">
                   "{t.quote}"
                 </p>
               </div>
 
+              {/* Author & Tag */}
               <div className="pt-6 border-t border-white/[0.08] mt-6 flex items-center justify-between">
                 <div>
-                  <h4 className="font-serif font-bold text-sm sm:text-base text-white">
-                    {t.name}
-                  </h4>
-                  <span className="text-[11px] text-zinc-400 block mt-0.5">
-                    {t.role}
-                  </span>
+                  <h4 className="font-sans font-bold text-sm text-white">{t.name}</h4>
+                  <p className="text-[11px] text-zinc-500">{t.role}</p>
                 </div>
-                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-[#e8c27a]/15 text-[#e8c27a] border border-[#e8c27a]/30">
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#e8c27a]/15 text-[#e8c27a] border border-[#e8c27a]/30">
                   {t.tag}
                 </span>
               </div>
@@ -124,23 +122,25 @@ export const TestimonialsAndFaq = () => {
             return (
               <div
                 key={idx}
-                className="card-gold-border rounded-xl overflow-hidden transition-all duration-200"
+                className="card-gold-border rounded-2xl overflow-hidden transition-all duration-200"
               >
                 <button
-                  type="button"
                   onClick={() => setOpenFaq(isOpen ? -1 : idx)}
+                  className="w-full p-5 text-left flex items-center justify-between gap-4 focus:outline-none"
                   aria-expanded={isOpen}
-                  className="w-full py-4 px-5 sm:px-6 flex items-center justify-between text-left text-sm sm:text-base font-semibold text-white hover:text-[#e8c27a] transition-colors focus:outline-none"
                 >
-                  <span className="font-serif pr-4">{faq.q}</span>
+                  <span className="font-medium text-sm sm:text-base text-zinc-200 hover:text-white">
+                    {faq.q}
+                  </span>
                   <ChevronDown
-                    className={`w-4 h-4 text-[#e8c27a] shrink-0 transition-transform duration-300 ${
+                    className={`w-4 h-4 text-[#e8c27a] transition-transform duration-300 shrink-0 ${
                       isOpen ? 'rotate-180' : ''
                     }`}
                   />
                 </button>
+
                 {isOpen && (
-                  <div className="px-5 sm:px-6 pb-4 sm:pb-5 text-xs sm:text-sm text-zinc-400 leading-relaxed border-t border-white/[0.05] pt-3 animate-fadeIn">
+                  <div className="px-5 pb-5 pt-1 text-xs sm:text-sm text-zinc-400 leading-relaxed border-t border-white/[0.05] animate-fadeIn">
                     {faq.a}
                   </div>
                 )}
@@ -153,3 +153,4 @@ export const TestimonialsAndFaq = () => {
   );
 };
 
+export default TestimonialsAndFaq;

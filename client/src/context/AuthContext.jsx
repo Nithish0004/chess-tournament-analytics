@@ -4,10 +4,10 @@ import { loginApi, getMeApi } from '../api';
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [token, setToken] = useState(() => localStorage.getItem('chess_token') || null);
+  const [token, setToken] = useState(() => localStorage.getItem('chess_token') || sessionStorage.getItem('chess_token') || null);
   const [user, setUser] = useState(() => {
     try {
-      const savedUser = localStorage.getItem('chess_user');
+      const savedUser = localStorage.getItem('chess_user') || sessionStorage.getItem('chess_user');
       return savedUser ? JSON.parse(savedUser) : null;
     } catch {
       return null;
@@ -19,17 +19,23 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
     localStorage.removeItem('chess_token');
     localStorage.removeItem('chess_user');
+    sessionStorage.removeItem('chess_token');
+    sessionStorage.removeItem('chess_user');
   }, []);
 
   const refreshUser = useCallback(async () => {
-    const activeToken = localStorage.getItem('chess_token');
+    const activeToken = localStorage.getItem('chess_token') || sessionStorage.getItem('chess_token');
     if (!activeToken) return;
     try {
       const data = await getMeApi();
       const userData = data?.user || (data?.user_id ? data : null);
       if (userData) {
         setUser(userData);
-        localStorage.setItem('chess_user', JSON.stringify(userData));
+        if (localStorage.getItem('chess_token')) {
+          localStorage.setItem('chess_user', JSON.stringify(userData));
+        } else {
+          sessionStorage.setItem('chess_user', JSON.stringify(userData));
+        }
       }
     } catch (err) {
       if (err.response?.status === 401 || err.response?.status === 403) {
@@ -44,18 +50,20 @@ export const AuthProvider = ({ children }) => {
     }
   }, [token, refreshUser]);
 
-  const setAuthSession = useCallback((newToken, newUser) => {
+  const setAuthSession = useCallback((newToken, newUser, rememberMe = true) => {
     setToken(newToken);
     setUser(newUser);
+    localStorage.removeItem('chess_token');
+    localStorage.removeItem('chess_user');
+    sessionStorage.removeItem('chess_token');
+    sessionStorage.removeItem('chess_user');
+
+    const storage = rememberMe ? localStorage : sessionStorage;
     if (newToken) {
-      localStorage.setItem('chess_token', newToken);
-    } else {
-      localStorage.removeItem('chess_token');
+      storage.setItem('chess_token', newToken);
     }
     if (newUser) {
-      localStorage.setItem('chess_user', JSON.stringify(newUser));
-    } else {
-      localStorage.removeItem('chess_user');
+      storage.setItem('chess_user', JSON.stringify(newUser));
     }
   }, []);
 
@@ -72,7 +80,7 @@ export const AuthProvider = ({ children }) => {
       approval_note: data.approval_note,
       permissions: data.permissions
     };
-    setAuthSession(data.token, resolvedUser);
+    setAuthSession(data.token, resolvedUser, rememberMe);
     if (rememberMe) {
       localStorage.setItem('chess_remembered_identifier', emailOrUsername);
     } else {

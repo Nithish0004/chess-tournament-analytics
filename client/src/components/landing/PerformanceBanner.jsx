@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowRight, TrendingUp } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip } from 'recharts';
 import { getDashboardApi } from '../../api';
+import { PieceImage } from '../ui/PieceImage';
 
 const DEFAULT_RATING_DATA = [
   { month: 'Jan', rating: 1520 },
@@ -58,17 +59,15 @@ export const PerformanceBanner = () => {
         <div className="absolute top-1/2 left-1/3 -translate-y-1/2 w-96 h-96 bg-[radial-gradient(circle,_rgba(232,194,122,0.08)_0%,_transparent_70%)] pointer-events-none filter blur-3xl" />
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center relative z-10">
-          {/* Left: Black King Artwork on Reflective Chessboard */}
+          {/* Left: 3D Black King Cutout with Reflection */}
           <div className="lg:col-span-3 flex justify-center lg:justify-start">
-            <div className="relative w-44 sm:w-52 h-44 sm:h-52 flex items-center justify-center">
-              <div className="absolute inset-0 bg-[radial-gradient(circle,_rgba(232,194,122,0.15)_0%,_transparent_70%)] pointer-events-none" />
-              <img
-                src="/images/chess-king-dark.png"
-                alt="Black Chess King"
-                className="w-full h-full object-contain filter contrast-[1.1] drop-shadow-[0_15px_25px_rgba(0,0,0,0.9)]"
-                onError={(e) => {
-                  e.currentTarget.src = '/src/assets/pieces/king.svg';
-                }}
+            <div className="relative py-2 flex items-center justify-center">
+              <PieceImage
+                piece="king-dark"
+                size={185}
+                glow="gold"
+                reflection={true}
+                tilt={true}
               />
             </div>
           </div>
