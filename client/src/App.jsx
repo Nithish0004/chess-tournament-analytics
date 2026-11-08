@@ -122,6 +122,12 @@ const getPageMeta = (pathname) => {
       subtitle: 'System security audit trail, operational actions, and administrative activity'
     };
   }
+  if (pathname === '/admin' || pathname === '/admin/dashboard') {
+    return {
+      title: 'Admin Dashboard',
+      subtitle: 'System administration console, approvals queue, and audit trail'
+    };
+  }
   if (pathname === '/forbidden') {
     return {
       title: 'Access Restricted',
@@ -191,6 +197,22 @@ function AppContent() {
             <Route path="/forbidden" element={<Forbidden />} />
 
             {/* Admin-only routes */}
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute allowedRoles={['ADMIN']}>
+                  <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/dashboard"
+              element={
+                <ProtectedRoute allowedRoles={['ADMIN']}>
+                  <Dashboard />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/admin/users"
               element={

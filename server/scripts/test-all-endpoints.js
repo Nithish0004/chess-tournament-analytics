@@ -612,6 +612,18 @@ const runTests = async () => {
         }
       },
       {
+        rule: 'GET /api/admin/overview: ADMIN only',
+        method: 'GET',
+        path: () => '/api/admin/overview',
+        body: null,
+        expected: {
+          ADMIN: 200,
+          'ORGANIZER (owner)': 403,
+          'ORGANIZER (other)': 403,
+          PLAYER: 403
+        }
+      },
+      {
         rule: 'POST /api/admin/users/:id/suspend: ADMIN only',
         method: 'POST',
         path: () => `/api/admin/users/${dummyUserId}/suspend`,
@@ -869,6 +881,28 @@ const runTests = async () => {
     record(
       'Admin cannot change their own role (400)',
       adminSelfRoleRes.status === 400 && adminSelfRoleJson.error === 'An admin cannot change their own role'
+    );
+
+    // 8.1 Admin Overview Payload Verification
+    const adminOverviewRes = await fetch(`${BASE_URL}/api/admin/overview`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    const adminOverviewJson = await adminOverviewRes.json();
+    const overviewValid = 
+      adminOverviewRes.status === 200 &&
+      typeof adminOverviewJson.users === 'object' &&
+      typeof adminOverviewJson.tournaments === 'object' &&
+      typeof adminOverviewJson.games === 'object' &&
+      Array.isArray(adminOverviewJson.rating_distribution?.bands) &&
+      Array.isArray(adminOverviewJson.top_players) &&
+      Array.isArray(adminOverviewJson.recent_upsets) &&
+      Array.isArray(adminOverviewJson.recent_audit) &&
+      adminOverviewJson.system?.database_reachable === true;
+
+    record(
+      'GET /api/admin/overview returns full structured metrics payload',
+      overviewValid,
+      `Users: ${adminOverviewJson.users?.total}, Tournaments: ${adminOverviewJson.tournaments?.active?.length}`
     );
 
     // ---------------------------------------------------------------

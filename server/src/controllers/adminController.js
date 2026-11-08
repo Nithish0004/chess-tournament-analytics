@@ -631,6 +631,279 @@ export const getAuditLogs = async (req, res, next) => {
   }
 };
 
+/**
+ * System Administration Overview (single round-trip consolidated metrics)
+ * Restricted to ADMIN role only.
+ */
+export const getAdminOverview = async (req, res, next) => {
+  try {
+    // 1. Users metrics
+    const [userRows] = await pool.query(`
+      SELECT 
+        COUNT(*) as total,
+        COALESCE(SUM(role = 'ADMIN'), 0) as count_admin,
+        COALESCE(SUM(role = 'ORGANIZER'), 0) as count_organizer,
+        COALESCE(SUM(role = 'PLAYER'), 0) as count_player,
+        COALESCE(SUM(created_at >= NOW() - INTERVAL 7 DAY), 0) as new_last_7_days,
+        COALESCE(SUM(approval_status = 'PENDING'), 0) as pending_approvals
+      FROM app_user
+    `);
+
+    const [pendingList] = await pool.query(`
+      SELECT user_id, username, full_name, email, role, phone, organization, country_code, experience_level, club, fide_id, created_at
+      FROM v_pending_approvals
+      ORDER BY created_at ASC
+      LIMIT 20
+    `);
+
+    const u = userRows[0] || {};
+    const users = {
+      total: Number(u.total || 0),
+      roles: {
+        ADMIN: Number(u.count_admin || 0),
+        ORGANIZER: Number(u.count_organizer || 0),
+        PLAYER: Number(u.count_player || 0)
+      },
+      new_last_7_days: Number(u.new_last_7_days || 0),
+      pending_approvals: Number(u.pending_approvals || 0),
+      pending_list: pendingList.map(item => ({
+        user_id: item.user_id,
+        username: item.username,
+        full_name: item.full_name,
+        email: item.email,
+        role: item.role,
+        phone: item.phone,
+        organization: item.organization,
+        country_code: item.country_code,
+        experience_level: item.experience_level,
+        club: item.club,
+        fide_id: item.fide_id,
+        created_at: item.created_at
+      }))
+    };
+
+    // 2. Tournaments metrics
+    const [statusRows] = await pool.query(`
+      SELECT status, COUNT(*) as cnt
+      FROM tournament
+      GROUP BY status
+    `);
+    const statusCounts = { UPCOMING: 0, ONGOING: 0, COMPLETED: 0 };
+    for (const row of statusRows) {
+      if (statusCounts[row.status] !== undefined) {
+        statusCounts[row.status] = Number(row.cnt);
+      }
+    }
+
+    const [activeTournaments] = await pool.query(`
+      SELECT 
+        t.tournament_id,
+        t.name,
+        t.format,
+        t.status,
+        t.start_date,
+        t.end_date,
+        (SELECT COUNT(*) FROM registration r WHERE r.tournament_id = t.tournament_id) AS registered_players,
+        (SELECT COUNT(*) FROM tournament_round tr WHERE tr.tournament_id = t.tournament_id AND tr.status = 'COMPLETED') AS rounds_completed,
+        COALESCE(t.rounds_planned, (SELECT COUNT(*) FROM tournament_round tr WHERE tr.tournament_id = t.tournament_id), 0) AS total_rounds,
+        (SELECT COUNT(*) FROM game g JOIN tournament_round tr ON tr.round_id = g.round_id WHERE tr.tournament_id = t.tournament_id AND g.status = 'FINISHED') AS games_recorded,
+        (SELECT COUNT(*) FROM game g JOIN tournament_round tr ON tr.round_id = g.round_id WHERE tr.tournament_id = t.tournament_id) AS total_games
+      FROM tournament t
+      WHERE t.status IN ('ONGOING', 'UPCOMING')
+      ORDER BY CASE t.status WHEN 'ONGOING' THEN 1 ELSE 2 END, t.start_date ASC
+    `);
+
+    const tournaments = {
+      counts: statusCounts,
+      total: Object.values(statusCounts).reduce((a, b) => a + b, 0),
+      active: activeTournaments.map(t => ({
+        tournament_id: t.tournament_id,
+        name: t.name,
+        format: t.format,
+        status: t.status,
+        start_date: t.start_date,
+        end_date: t.end_date,
+        registered_players: Number(t.registered_players || 0),
+        rounds_completed: Number(t.rounds_completed || 0),
+        total_rounds: Number(t.total_rounds || 0),
+        games_recorded: Number(t.games_recorded || 0),
+        total_games: Number(t.total_games || 0)
+      }))
+    };
+
+    // 3. Games metrics
+    const [gameStats] = await pool.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM game) AS total_games,
+        (SELECT COUNT(*) FROM result) AS finished_games,
+        (SELECT COUNT(*) FROM result WHERE outcome = 'WHITE') AS white_wins,
+        (SELECT COUNT(*) FROM result WHERE outcome = 'DRAW') AS draws,
+        (SELECT COUNT(*) FROM result WHERE outcome = 'BLACK') AS black_wins,
+        (SELECT COUNT(*) FROM result WHERE is_upset = 1) AS total_upsets
+    `);
+    const gs = gameStats[0] || {};
+
+    const [dailyRows] = await pool.query(`
+      SELECT DATE(recorded_at) as game_date, COUNT(*) as count
+      FROM result
+      WHERE recorded_at >= CURDATE() - INTERVAL 13 DAY
+      GROUP BY DATE(recorded_at)
+      ORDER BY game_date ASC
+    `);
+    const dailyMap = new Map(dailyRows.map(r => [r.game_date, Number(r.count)]));
+    const daily_14d = [];
+    const now = new Date();
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 86400000);
+      const dateStr = d.toISOString().slice(0, 10);
+      const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      daily_14d.push({
+        date: dateStr,
+        label,
+        count: dailyMap.get(dateStr) || 0
+      });
+    }
+
+    const games = {
+      total: Number(gs.total_games || 0),
+      finished: Number(gs.finished_games || 0),
+      outcomes: {
+        white: Number(gs.white_wins || 0),
+        draw: Number(gs.draws || 0),
+        black: Number(gs.black_wins || 0)
+      },
+      total_upsets: Number(gs.total_upsets || 0),
+      games_per_day_14d: daily_14d
+    };
+
+    // 4. Rating distribution
+    const [bandRows] = await pool.query(`
+      SELECT 
+        FLOOR(current_rating / 100) * 100 AS min_rating,
+        COUNT(*) AS count
+      FROM player
+      GROUP BY min_rating
+      ORDER BY min_rating ASC
+    `);
+    const [ratingSummary] = await pool.query(`
+      SELECT ROUND(AVG(current_rating)) as avg_rating, MAX(current_rating) as max_rating, MIN(current_rating) as min_rating
+      FROM player
+    `);
+    const rating_distribution = {
+      bands: bandRows.map(b => ({
+        band: `${b.min_rating}-${Number(b.min_rating) + 99}`,
+        range: `${b.min_rating}-${Number(b.min_rating) + 99}`,
+        min: Number(b.min_rating),
+        max: Number(b.min_rating) + 99,
+        count: Number(b.count)
+      })),
+      avg_rating: Number(ratingSummary[0]?.avg_rating || 0),
+      max_rating: Number(ratingSummary[0]?.max_rating || 0),
+      min_rating: Number(ratingSummary[0]?.min_rating || 0)
+    };
+
+    // 5. Top players
+    const [topPlayersRows] = await pool.query(`
+      SELECT 
+        p.player_id, p.name, p.country, p.country_code, p.current_rating, p.club,
+        (
+          SELECT rh.rating_change 
+          FROM rating_history rh 
+          WHERE rh.player_id = p.player_id 
+          ORDER BY rh.recorded_at DESC, rh.history_id DESC 
+          LIMIT 1
+        ) AS last_rating_change
+      FROM player p
+      ORDER BY p.current_rating DESC
+      LIMIT 5
+    `);
+    const top_players = topPlayersRows.map(p => ({
+      player_id: p.player_id,
+      name: p.name,
+      country: p.country,
+      country_code: p.country_code,
+      current_rating: Number(p.current_rating),
+      club: p.club,
+      last_rating_change: p.last_rating_change !== null ? Number(p.last_rating_change) : null
+    }));
+
+    // 6. Recent upsets
+    const [upsetRows] = await pool.query(`
+      SELECT 
+        u.tournament_id, t.name AS tournament_name, u.game_id, u.winner, u.winner_rating, u.loser, u.loser_rating, u.rating_gap, r.recorded_at
+      FROM v_upsets u
+      JOIN tournament t ON t.tournament_id = u.tournament_id
+      JOIN result r ON r.game_id = u.game_id
+      ORDER BY r.recorded_at DESC, u.game_id DESC
+      LIMIT 5
+    `);
+    const recent_upsets = upsetRows.map(u => ({
+      tournament_id: u.tournament_id,
+      tournament_name: u.tournament_name,
+      game_id: u.game_id,
+      winner: u.winner,
+      winner_rating: Number(u.winner_rating),
+      loser: u.loser,
+      loser_rating: Number(u.loser_rating),
+      rating_gap: Number(u.rating_gap),
+      recorded_at: u.recorded_at
+    }));
+
+    // 7. Recent audit logs
+    const [auditRows] = await pool.query(`
+      SELECT 
+        a.log_id, a.actor_user_id, COALESCE(u.full_name, u.username, 'System') AS actor_name,
+        u.email AS actor_email, a.action, a.entity, a.entity_id, a.details, a.created_at
+      FROM audit_log a
+      LEFT JOIN app_user u ON u.user_id = a.actor_user_id
+      ORDER BY a.created_at DESC, a.log_id DESC
+      LIMIT 8
+    `);
+    const recent_audit = auditRows.map(a => ({
+      log_id: a.log_id,
+      actor_user_id: a.actor_user_id,
+      actor: a.actor_name,
+      action: a.action,
+      entity: a.entity,
+      entity_id: a.entity_id,
+      details: typeof a.details === 'string' ? JSON.parse(a.details) : a.details,
+      created_at: a.created_at,
+      time: a.created_at
+    }));
+
+    // 8. System status
+    const [latestPredRows] = await pool.query(`
+      SELECT created_at, model_version 
+      FROM prediction 
+      ORDER BY created_at DESC, prediction_id DESC 
+      LIMIT 1
+    `);
+    const system = {
+      database_reachable: true,
+      api_uptime: Math.floor(process.uptime()),
+      api_uptime_seconds: Math.floor(process.uptime()),
+      server_time: new Date().toISOString(),
+      latest_prediction: latestPredRows.length > 0 ? {
+        created_at: latestPredRows[0].created_at,
+        model_version: latestPredRows[0].model_version
+      } : null
+    };
+
+    return res.status(200).json({
+      users,
+      tournaments,
+      games,
+      rating_distribution,
+      top_players,
+      recent_upsets,
+      recent_audit,
+      system
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export default {
   getUsers,
   getUserById,
@@ -641,5 +914,6 @@ export default {
   suspendUser,
   reactivateUser,
   updateUserRole,
-  getAuditLogs
+  getAuditLogs,
+  getAdminOverview
 };

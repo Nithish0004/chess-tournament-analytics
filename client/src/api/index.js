@@ -226,6 +226,11 @@ export const getMyDashboardApi = async () => {
 };
 
 // Admin
+export const getAdminOverviewApi = async () => {
+  const { data } = await api.get('/admin/overview');
+  return data;
+};
+
 export const getAdminUsersApi = async (params = {}) => {
   const { data } = await api.get('/admin/users', { params });
   return data;

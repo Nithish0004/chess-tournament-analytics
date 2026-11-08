@@ -196,6 +196,10 @@ Content-Type: application/json
 ### 2. ADMIN USER & APPROVAL MANAGEMENT (ADMIN ONLY)
 ###
 
+# 2.0 Admin System Overview (consolidated statistics and monitoring)
+GET {{baseUrl}}/api/admin/overview
+Authorization: Bearer {{adminToken}}
+
 # 2.1 List Users (supports role, approval_status, status, q, limit, offset)
 GET {{baseUrl}}/api/admin/users?role=ORGANIZER&approval_status=PENDING&status=ACTIVE&limit=20&offset=0
 Authorization: Bearer {{adminToken}}
