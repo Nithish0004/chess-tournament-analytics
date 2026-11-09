@@ -8,8 +8,10 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "seed:admin": "node scripts/seed-admin.js",
-    "seed:demo": "node scripts/seed-demo.js",
-    "seed:demo-accounts": "node scripts/seed-demo-accounts.js"
+    "seed:demo": "node scripts/seed-demo-full.js",
+    "seed:demo-accounts": "node scripts/seed-demo-accounts.js",
+    "reset:demo": "node scripts/reset-demo.js",
+    "verify:demo": "node scripts/verify-demo.js"
   },
   "keywords": [
     "chess",
