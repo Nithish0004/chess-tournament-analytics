@@ -838,8 +838,9 @@ const runTests = async () => {
     });
     const googleInvalidJson = await googleInvalidRes.json();
     record(
-      'Google auth endpoint rejects invalid token with 400',
-      googleInvalidRes.status === 400 && googleInvalidJson.error === 'Invalid Google token'
+      'Google auth endpoint rejects invalid token with 401 (or 400)',
+      (googleInvalidRes.status === 401 && googleInvalidJson.error === 'INVALID_GOOGLE_TOKEN') ||
+      (googleInvalidRes.status === 400 && googleInvalidJson.error === 'Invalid Google token')
     );
 
     const googleMissingRes = await fetch(`${BASE_URL}/api/auth/google`, {

@@ -69,13 +69,25 @@ Actions fully unlocked      Actions remain blocked with 403 NOT_APPROVED
      ```
    - Unapproved users have `can_explore: true` and can view tournaments, standings, leaderboards, and analytics.
 
-4. **Stage 4: Google OAuth Sign-In (`POST /api/auth/google`)**
-   - Verifies the Google ID token using `google-auth-library` and `GOOGLE_CLIENT_ID`.
-   - If `google_sub` already exists: logs in immediately.
-   - If `email` already exists: links `google_sub` and logs in.
-   - If new user: creates account with `email_verified = 1`, `status = 'ACTIVE'`, `approval_status = 'PENDING'`, and requested role (default `PLAYER`).
-   - Response includes `profile_complete`: `false` if a PLAYER lacks `date_of_birth` or `gender`, or if an ORGANIZER lacks `phone` or `organization`.
-   - The user completes their profile via `PUT /api/auth/me/profile`.
+4. **Stage 4: Google OAuth Sign-In Flow (`POST /api/auth/google` & `POST /api/auth/google/complete`)**
+   - Verification module `src/services/googleVerifier.js` verifies the ID token using `google-auth-library` (`audience = GOOGLE_CLIENT_ID`). Rejects with `401 INVALID_GOOGLE_TOKEN` if verification fails or `email_verified` is not true. If `GOOGLE_CLIENT_ID` is not set, answers `503 GOOGLE_DISABLED`.
+   - **Rule**: A new Google user gets an account ONLY after supplying the required profile data. Nothing is written to the database before that.
+   - **`POST /api/auth/google {id_token}`** (rate limited like login):
+     - **a. Already Linked**: If `google_sub` is already linked, logs in immediately (blocked if `SUSPENDED`; same response shape as `/auth/login`: `token`, `user`, `permissions`).
+     - **b. Existing Email Account**:
+       - If verified (`email_verified = 1`): links `google_sub` and logs in with `linked: true` in response. Password hash, role, and approval status remain untouched.
+       - If unverified password account: links `google_sub`, sets `password_hash = NULL`, sets `email_verified = 1` and `status = 'ACTIVE'`, and deletes outstanding verification tokens. Never alters existing `role` or `approval_status`. Logs in with `linked: true`.
+       - Writes an `audit_log` entry for account linking.
+     - **c. New Person**: Creates **NOTHING** in the database. Returns `200 { needs_registration: true, registration_token, prefill: { email, full_name } }`. The `registration_token` is a 15-minute JWT signed with `JWT_SECRET`, purpose `'google_signup'`, containing `sub`, `email`, and `name`.
+   - **`POST /api/auth/google/complete`**:
+     - Consumes `registration_token`, `role: PLAYER|ORGANIZER`, `username`, `full_name`, `country_code`, `accept_terms`, and role fields.
+     - Verifies token purpose and expiry. Extracts email and sub **ONLY** from the token, strictly ignoring any body overrides.
+     - Validates profile requirements (same as registration, no password): `PLAYER` requires `date_of_birth`, `gender`, `experience_level` (optional `phone`, `club`, `fide_id`); `ORGANIZER` requires `phone` and `organization`. Role `ADMIN` cannot be requested. Validates username format, reserved names, and uniqueness (`409 USERNAME_TAKEN`).
+     - In **ONE transaction**, creates `app_user` (no `password_hash`, `google_sub` set, `email_verified = 1`, `status = 'ACTIVE'`, `approval_status = 'PENDING'`) and for `PLAYER` creates linked player row (`current_rating = 1200`). If email or google_sub was taken in the meantime, returns `409`.
+     - Logs audit entries for registration and account linking. Returns login response shape (`token`, `user`, `permissions`).
+   - **Accounts Without a Password**:
+     - Password login returns generic `401 Invalid email or password`.
+     - Forgot-password (`/api/auth/forgot-password` -> `/api/auth/reset-password`) allows setting a local password at any time.
 
 5. **Stage 5: Approval Gate (`requireApproved` Middleware & Triggers)**
    - Protects `POST /api/tournaments/:id/register-me` (PLAYER self-registration).
@@ -155,7 +167,8 @@ To protect player privacy:
 | `/api/auth/verify-email` | `POST` | Public | Verifies token, sets `status = 'ACTIVE'`, keeping `approval_status = 'PENDING'`. |
 | `/api/auth/resend-verification` | `POST` | Public | Resends verification token (60-second cooldown per account). |
 | `/api/auth/login` | `POST` | Public | Authenticates credentials; allows any `ACTIVE` user; returns JWT, `approval_status`, `approval_note`, and `permissions` object. 5 failed attempts locks account for 15 minutes. |
-| `/api/auth/google` | `POST` | Public | Google OAuth2 ID token verification; account linking or creation; returns `profile_complete`. |
+| `/api/auth/google` | `POST` | Public | Google OAuth2 ID token verification; account linking or returns 15m `registration_token` with prefill data. Answers 503 if disabled. |
+| `/api/auth/google/complete` | `POST` | Public | Finalizes new Google registration with profile data; creates `app_user` (`PENDING`) and `player` (1200 rating). |
 | `/api/auth/forgot-password` | `POST` | Public | Issues 1-hour single-use reset token via email. |
 | `/api/auth/reset-password` | `POST` | Public | Consumes reset token and sets new password. |
 | `/api/auth/me` | `GET` | Authenticated | Returns current authenticated user record with linked player chess profile and `permissions` object. |
@@ -184,6 +197,8 @@ To protect player privacy:
 | `/api/players/:id/analytics` | `GET` | Any ACTIVE user | Returns player performance, rating history, and match records. |
 | `/api/players` | `POST` | `ADMIN`, Approved `ORGANIZER` | Enforced via `requireApproved`. Creates walk-in player with default rating 1200. |
 | `/api/players/:id` | `PUT` | `ADMIN`, Self (`PLAYER`), Unlinked (`ORGANIZER`) | Updates player profile. Direct rating edit blocked (`400`). Organizers cannot edit players with linked user accounts (`403`). |
+| `/api/admin/overview` | `GET` | `ADMIN` only | Consolidated administrative dashboard statistics, system metrics, and recent activities. |
+| `/api/admin/system/db-status` | `GET` | `ADMIN` only | Database connection and schema diagnostic facts (DB name, MySQL version, schema checks, row counts, newest records) without host, user, or password. Audit-logs nothing. |
 | `/api/admin/users` | `GET` | `ADMIN` only | Lists users with filters: `role`, `approval_status`, `status`, `q`, `limit`, `offset`. Includes linked player chess profile. |
 | `/api/admin/users/:id` | `GET` | `ADMIN` only | Returns user detail, linked player profile, and tournament count for organizers. |
 | `/api/admin/users/:id` | `PUT` | `ADMIN` only | Updates user (`full_name`, `phone`, `organization`) and linked player (`name`, `country`, `date_of_birth`, `gender`, `experience_level`, `club`, `fide_id`). Cannot edit rating, role, email, password. |
@@ -218,8 +233,20 @@ All testing and seeding scripts target `chess_scratch` and verify the database n
    DB_NAME=chess_scratch node scripts/test-approval-flow.js
    ```
 
-4. **Run Regression RBAC & Security Suite (116 tests)**:
+4. **Run Regression RBAC & Security Suite (129 tests)**:
    ```bash
    cd server
    DB_NAME=chess_scratch node scripts/test-all-endpoints.js
+   ```
+
+5. **Run Google Sign-In & Verification Suite (33 tests)**:
+   ```bash
+   cd server
+   DB_NAME=chess_scratch node scripts/test-google-auth.js
+   ```
+
+6. **Database Connection & Diagnostic Check**:
+   ```bash
+   cd server
+   node scripts/check-db-connection.js
    ```

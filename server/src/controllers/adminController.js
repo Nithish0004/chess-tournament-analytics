@@ -1,6 +1,7 @@
 import { pool } from '../config/db.js';
 import { sendAccountApprovedEmail, sendAccountRejectedEmail } from '../services/mailService.js';
 import { logAudit } from '../utils/auditLogger.js';
+import { getDbDiagnosticFacts } from '../services/dbDiagnostic.js';
 
 export const getUsers = async (req, res, next) => {
   const { status, role, approval_status, q, limit, offset } = req.query;
@@ -904,6 +905,20 @@ export const getAdminOverview = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/admin/system/db-status
+ * Diagnostics facts for running server process (ADMIN only).
+ * Omits host, user, and password. Audit-logs nothing.
+ */
+export const getDbStatus = async (req, res, next) => {
+  try {
+    const facts = await getDbDiagnosticFacts({ includeConnectionDetails: false });
+    return res.status(200).json(facts);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export default {
   getUsers,
   getUserById,
@@ -915,5 +930,6 @@ export default {
   reactivateUser,
   updateUserRole,
   getAuditLogs,
-  getAdminOverview
+  getAdminOverview,
+  getDbStatus
 };

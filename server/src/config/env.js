@@ -24,7 +24,9 @@ export const env = {
   SMTP_USER: process.env.SMTP_USER || '',
   SMTP_PASS: process.env.SMTP_PASS || '',
   MAIL_FROM: process.env.MAIL_FROM || 'noreply@chess-tournament.com',
-  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
+  get GOOGLE_CLIENT_ID() {
+    return process.env.GOOGLE_CLIENT_ID || '';
+  },
   NODE_ENV: process.env.NODE_ENV || 'development'
 };
 

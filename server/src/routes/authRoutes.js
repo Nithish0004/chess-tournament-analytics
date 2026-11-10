@@ -5,6 +5,7 @@ import {
   resendVerification,
   login,
   googleLogin,
+  googleComplete,
   forgotPassword,
   resetPassword,
   checkUsername,
@@ -17,11 +18,13 @@ import {
   resendVerificationSchema,
   loginSchema,
   googleAuthSchema,
+  googleCompleteSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   updateProfileSchema,
   changePasswordSchema
 } from '../controllers/authController.js';
+import { ensureGoogleEnabled } from '../services/googleVerifier.js';
 import { validateBody } from '../middleware/validateMiddleware.js';
 import { authMiddleware } from '../middleware/authMiddleware.js';
 import { authRateLimiter, loginRateLimiter, availabilityRateLimiter } from '../middleware/rateLimitMiddleware.js';
@@ -35,7 +38,8 @@ router.post('/register', authRateLimiter, validateBody(registerSchema), register
 router.post('/verify-email', authRateLimiter, validateBody(verifyEmailSchema), verifyEmail);
 router.post('/resend-verification', authRateLimiter, validateBody(resendVerificationSchema), resendVerification);
 router.post('/login', loginRateLimiter, validateBody(loginSchema), login);
-router.post('/google', authRateLimiter, validateBody(googleAuthSchema), googleLogin);
+router.post('/google', ensureGoogleEnabled, loginRateLimiter, validateBody(googleAuthSchema), googleLogin);
+router.post('/google/complete', ensureGoogleEnabled, authRateLimiter, validateBody(googleCompleteSchema), googleComplete);
 router.post('/forgot-password', authRateLimiter, validateBody(forgotPasswordSchema), forgotPassword);
 router.post('/reset-password', authRateLimiter, validateBody(resetPasswordSchema), resetPassword);
 

@@ -139,12 +139,36 @@ Content-Type: application/json
 @playerToken = {{playerLogin.response.body.token}}
 
 # 1.7 Google Sign-In (OAuth2 ID Token verification)
+# Rate limited like login. Answers 503 GOOGLE_DISABLED if GOOGLE_CLIENT_ID is not configured.
+# 1. If google_sub already linked -> logs in (returns token, user, permissions).
+# 2. If account with verified email exists -> links google_sub and logs in (returns linked: true, token, user, permissions).
+# 3. If account with unverified email exists -> links google_sub, sets password_hash = NULL, email_verified = 1,
+#    status ACTIVE, deletes outstanding verification tokens, and logs in (linked: true).
+# 4. If new user -> creates NOTHING in DB; returns 200 { needs_registration: true, registration_token, prefill: { email, full_name } }.
 POST {{baseUrl}}/api/auth/google
 Content-Type: application/json
 
 {
-  "id_token": "REPLACE_WITH_GOOGLE_ID_TOKEN",
-  "role": "PLAYER"
+  "id_token": "REPLACE_WITH_GOOGLE_ID_TOKEN"
+}
+
+# 1.7b Complete Google Sign-In Registration (New User Profile Completion)
+# Exchanges 15-minute registration_token and role profile fields for new account creation.
+# Creates app_user (no password_hash, google_sub set, email_verified 1, status ACTIVE, approval_status PENDING)
+# and for PLAYER creates linked player row (current_rating 1200). Email and sub taken ONLY from the token.
+POST {{baseUrl}}/api/auth/google/complete
+Content-Type: application/json
+
+{
+  "registration_token": "REPLACE_WITH_REGISTRATION_TOKEN_FROM_STEP_1",
+  "role": "PLAYER",
+  "username": "chess_master_99",
+  "full_name": "Magnus Player",
+  "country_code": "NO",
+  "date_of_birth": "1990-11-30",
+  "gender": "MALE",
+  "experience_level": "EXPERT",
+  "accept_terms": true
 }
 
 # 1.8 Forgot Password (generic 200 response)
@@ -198,6 +222,11 @@ Content-Type: application/json
 
 # 2.0 Admin System Overview (consolidated statistics and monitoring)
 GET {{baseUrl}}/api/admin/overview
+Authorization: Bearer {{adminToken}}
+
+# 2.0b Database Connection & Schema Diagnostic Status (ADMIN only)
+# Returns database name, MySQL version, schema checks, table row counts, and newest record timestamps without host, user, or password. Audit-logs nothing.
+GET {{baseUrl}}/api/admin/system/db-status
 Authorization: Bearer {{adminToken}}
 
 # 2.1 List Users (supports role, approval_status, status, q, limit, offset)

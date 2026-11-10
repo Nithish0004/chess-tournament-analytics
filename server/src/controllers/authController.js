@@ -1,16 +1,23 @@
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
-import { OAuth2Client } from 'google-auth-library';
+import jwt from 'jsonwebtoken';
 import { countries } from 'countries-list';
+import countriesIso from 'i18n-iso-countries';
 import { pool } from '../config/db.js';
 import { env } from '../config/env.js';
 import { signToken } from '../utils/jwt.js';
 import { hashToken, createAuthToken } from '../utils/tokens.js';
 import { sendVerificationEmail, sendPasswordResetEmail, sendAccountApprovedEmail } from '../services/mailService.js';
 import { getPermissions } from '../middleware/authMiddleware.js';
+import { verifyGoogleIdToken } from '../services/googleVerifier.js';
+import { logAudit } from '../utils/auditLogger.js';
 
 const BCRYPT_ROUNDS = 12;
-const googleClient = new OAuth2Client(env.GOOGLE_CLIENT_ID);
+
+export const RESERVED_USERNAMES = new Set([
+  'admin', 'administrator', 'system', 'root', 'superuser', 'moderator',
+  'chess_admin', 'support', 'help', 'null', 'undefined'
+]);
 
 // Country code resolver helper
 const resolveCountryData = (codeOrName) => {
@@ -18,12 +25,23 @@ const resolveCountryData = (codeOrName) => {
   const raw = codeOrName.trim();
   const upper = raw.toUpperCase();
 
-  // If 2-letter ISO code exists in countries-list
-  if (upper.length === 2 && countries[upper]) {
-    return { code: upper, name: countries[upper].name };
+  // If 2-letter ISO code exists in countries-list or i18n-iso-countries
+  if (upper.length === 2) {
+    if (countries[upper]) {
+      return { code: upper, name: countries[upper].name };
+    }
+    if (countriesIso.isValid(upper)) {
+      return { code: upper, name: countriesIso.getName(upper, 'en') || upper };
+    }
   }
 
-  // Lookup by country name (case-insensitive)
+  // Lookup by country name in i18n-iso-countries
+  const isoCode = countriesIso.getAlpha2Code(raw, 'en');
+  if (isoCode) {
+    return { code: isoCode, name: countriesIso.getName(isoCode, 'en') || raw };
+  }
+
+  // Lookup by country name (case-insensitive) in countries-list
   const lower = raw.toLowerCase();
   for (const [code, data] of Object.entries(countries)) {
     if (data.name.toLowerCase() === lower || (data.native && data.native.toLowerCase() === lower)) {
@@ -157,9 +175,55 @@ export const loginSchema = z.object({
 });
 
 export const googleAuthSchema = z.object({
-  id_token: z.string().min(1, 'id_token is required'),
-  role: z.enum(['PLAYER', 'ORGANIZER']).optional().default('PLAYER')
+  id_token: z.string().min(1, 'id_token is required')
 });
+
+export const googleCompletePlayerObject = z.object({
+  registration_token: z.string().min(1, 'registration_token is required'),
+  role: z.literal('PLAYER'),
+  username: z.string().trim()
+    .min(3, 'Username must be at least 3 characters')
+    .max(20, 'Username cannot exceed 20 characters')
+    .regex(/^[A-Za-z0-9_]{3,20}$/, 'Username can only contain letters, numbers, and underscores'),
+  full_name: z.string().trim().min(1, 'Full name is required').max(100),
+  country_code: z.string().trim().max(10).optional().nullable(),
+  country: z.string().trim().max(100).optional().nullable(),
+  date_of_birth: dateOfBirthValidation,
+  gender: z.enum(['MALE', 'FEMALE', 'OTHER', 'UNDISCLOSED'], {
+    errorMap: () => ({ message: 'Gender must be MALE, FEMALE, OTHER, or UNDISCLOSED' })
+  }),
+  experience_level: z.enum(['BEGINNER', 'INTERMEDIATE', 'ADVANCED', 'EXPERT'], {
+    errorMap: () => ({ message: 'Experience level must be BEGINNER, INTERMEDIATE, ADVANCED, or EXPERT' })
+  }),
+  phone: z.string().trim().max(20).optional().nullable(),
+  club: z.string().trim().max(100).optional().nullable(),
+  fide_id: z.string().trim().max(12).optional().nullable(),
+  accept_terms: z.literal(true, {
+    errorMap: () => ({ message: 'You must accept the terms' })
+  })
+});
+
+export const googleCompleteOrganizerObject = z.object({
+  registration_token: z.string().min(1, 'registration_token is required'),
+  role: z.literal('ORGANIZER'),
+  username: z.string().trim()
+    .min(3, 'Username must be at least 3 characters')
+    .max(20, 'Username cannot exceed 20 characters')
+    .regex(/^[A-Za-z0-9_]{3,20}$/, 'Username can only contain letters, numbers, and underscores'),
+  full_name: z.string().trim().min(1, 'Full name is required').max(100),
+  phone: z.string().trim().min(1, 'Phone is required').max(20),
+  organization: z.string().trim().min(1, 'Organization is required').max(120),
+  country_code: z.string().trim().max(10).optional().nullable(),
+  country: z.string().trim().max(100).optional().nullable(),
+  accept_terms: z.literal(true, {
+    errorMap: () => ({ message: 'You must accept the terms' })
+  })
+});
+
+export const googleCompleteSchema = z.discriminatedUnion('role', [
+  googleCompletePlayerObject,
+  googleCompleteOrganizerObject
+]);
 
 export const forgotPasswordSchema = z.object({
   email: z.string().trim().email('Invalid email address')
@@ -225,6 +289,13 @@ export const checkUsername = async (req, res, next) => {
       return res.status(200).json({
         available: false,
         error: 'Username may only contain letters, numbers, and underscores'
+      });
+    }
+
+    if (RESERVED_USERNAMES.has(username.toLowerCase())) {
+      return res.status(200).json({
+        available: false,
+        error: 'This username is reserved. Please choose another.'
       });
     }
 
@@ -336,6 +407,14 @@ export const register = async (req, res, next) => {
     return res.status(400).json({
       error: 'Username must be 3-20 characters and contain only letters, numbers, and underscores',
       field: 'username'
+    });
+  }
+
+  if (RESERVED_USERNAMES.has(username.toLowerCase())) {
+    return res.status(409).json({
+      error: 'This username is reserved or taken. Please choose another username.',
+      field: 'username',
+      code: 'USERNAME_TAKEN'
     });
   }
 
@@ -973,164 +1052,600 @@ export const getMe = async (req, res, next) => {
 };
 
 export const googleLogin = async (req, res, next) => {
-  const { id_token, role: requestedRole = 'PLAYER' } = req.body;
+  const { id_token } = req.body;
 
   if (!id_token) {
     return res.status(400).json({ error: 'id_token is required', message: 'id_token is required' });
   }
 
-  let payload;
+  let googleUser;
   try {
-    const ticket = await googleClient.verifyIdToken({
-      idToken: id_token,
-      audience: env.GOOGLE_CLIENT_ID || undefined
-    });
-    payload = ticket.getPayload();
+    googleUser = await verifyGoogleIdToken(id_token);
   } catch (err) {
-    return res.status(400).json({
-      error: 'Invalid Google token',
-      message: 'Invalid Google token',
-      details: err.message
+    if (err.status === 503 || err.code === 'GOOGLE_DISABLED') {
+      return res.status(503).json({
+        error: 'GOOGLE_DISABLED',
+        code: 'GOOGLE_DISABLED',
+        message: 'Google authentication is currently disabled'
+      });
+    }
+    return res.status(401).json({
+      error: 'INVALID_GOOGLE_TOKEN',
+      code: 'INVALID_GOOGLE_TOKEN',
+      message: 'Invalid Google token'
     });
   }
 
-  if (!payload || !payload.email_verified) {
-    return res.status(400).json({
-      error: 'Google email is not verified',
-      message: 'Google email is not verified'
-    });
-  }
-
-  const googleSub = payload.sub;
-  const email = (payload.email || '').trim().toLowerCase();
-  const fullName = payload.name || email.split('@')[0] || 'Google User';
+  const { sub: googleSub, email, name: fullName } = googleUser;
 
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
-    let [users] = await conn.query(
+    // 1a. Check if google_sub is already linked -> normal login
+    const [subUsers] = await conn.query(
       `SELECT user_id, email, username, full_name, role, status, approval_status, approval_note,
-              email_verified, phone, organization, country_code, player_id, google_sub
+              email_verified, phone, organization, country_code, player_id, google_sub,
+              created_at, last_login_at
        FROM app_user WHERE google_sub = ?`,
       [googleSub]
     );
 
-    let user = users[0];
+    if (subUsers.length > 0) {
+      const user = subUsers[0];
 
-    if (!user) {
-      // Check if user exists with this email
-      const [emailUsers] = await conn.query(
-        `SELECT user_id, email, username, full_name, role, status, approval_status, approval_note,
-                email_verified, phone, organization, country_code, player_id, google_sub
-         FROM app_user WHERE email = ?`,
-        [email]
-      );
-
-      if (emailUsers.length > 0) {
-        user = emailUsers[0];
-        await conn.query(
-          'UPDATE app_user SET google_sub = ?, email_verified = 1 WHERE user_id = ?',
-          [googleSub, user.user_id]
-        );
-        user.google_sub = googleSub;
-        user.email_verified = 1;
-      } else {
-        // Create new account
-        const role = requestedRole === 'ORGANIZER' ? 'ORGANIZER' : 'PLAYER';
-        let playerId = null;
-
-        if (role === 'PLAYER') {
-          const [existingPlayers] = await conn.query(
-            'SELECT player_id FROM player WHERE email = ?',
-            [email]
-          );
-
-          if (existingPlayers.length > 0) {
-            playerId = existingPlayers[0].player_id;
-          } else {
-            const [playerInsert] = await conn.query(
-              `INSERT INTO player (name, email, current_rating, date_of_birth, gender)
-               VALUES (?, ?, 1200, NULL, NULL)`,
-              [fullName, email]
-            );
-            playerId = playerInsert.insertId;
-          }
-        }
-
-        const usernameBase = email.split('@')[0].replace(/[^A-Za-z0-9_]/g, '').slice(0, 10) || 'google_user';
-        const uniqueUsername = `${usernameBase}_${Date.now().toString().slice(-6)}`.slice(0, 20);
-
-        const [userInsert] = await conn.query(
-          `INSERT INTO app_user (email, username, full_name, role, status, approval_status, email_verified, google_sub, player_id)
-           VALUES (?, ?, ?, ?, 'ACTIVE', 'PENDING', 1, ?, ?)`,
-          [email, uniqueUsername, fullName, role, googleSub, playerId]
-        );
-
-        const [createdUsers] = await conn.query(
-          `SELECT user_id, email, username, full_name, role, status, approval_status, approval_note,
-                  email_verified, phone, organization, country_code, player_id, google_sub
-           FROM app_user WHERE user_id = ?`,
-          [userInsert.insertId]
-        );
-        user = createdUsers[0];
+      if (user.status === 'SUSPENDED') {
+        await conn.rollback();
+        return res.status(403).json({
+          error: 'Account has been suspended',
+          code: 'SUSPENDED'
+        });
       }
-    }
 
-    if (user.status === 'SUSPENDED') {
-      await conn.rollback();
-      return res.status(403).json({
-        error: 'Account has been suspended',
-        code: 'SUSPENDED'
-      });
-    }
+      await conn.query(
+        'UPDATE app_user SET last_login_at = NOW(), failed_logins = 0 WHERE user_id = ?',
+        [user.user_id]
+      );
+      await conn.commit();
 
-    await conn.query('UPDATE app_user SET last_login_at = NOW(), failed_logins = 0 WHERE user_id = ?', [user.user_id]);
-    await conn.commit();
-
-    let playerRow = null;
-    let profileComplete = true;
-
-    if (user.role === 'PLAYER') {
+      let playerRow = null;
       if (user.player_id) {
         const [pRows] = await pool.query(
-          'SELECT player_id, name, country, country_code, date_of_birth, gender, experience_level, club, fide_id, current_rating FROM player WHERE player_id = ?',
+          'SELECT player_id, name, email, country, country_code, date_of_birth, gender, experience_level, club, fide_id, current_rating FROM player WHERE player_id = ?',
           [user.player_id]
         );
         playerRow = pRows[0] || null;
       }
-      if (!playerRow || !playerRow.country) {
-        profileComplete = false;
+
+      const token = signToken({
+        user_id: user.user_id,
+        role: user.role,
+        player_id: user.player_id
+      });
+      const permissions = getPermissions(user.role, user.approval_status);
+
+      return res.status(200).json({
+        message: 'Login successful',
+        token,
+        user: {
+          user_id: user.user_id,
+          email: user.email,
+          username: user.username,
+          full_name: user.full_name,
+          role: user.role,
+          status: user.status,
+          approval_status: user.approval_status,
+          approval_note: user.approval_note,
+          country_code: user.country_code,
+          email_verified: user.email_verified,
+          phone: user.phone,
+          organization: user.organization,
+          player_id: user.player_id,
+          created_at: user.created_at,
+          last_login_at: new Date(),
+          permissions,
+          ...(playerRow ? { player: playerRow } : {})
+        },
+        permissions,
+        approval_status: user.approval_status,
+        approval_note: user.approval_note
+      });
+    }
+
+    // 1b. Check if an account with that email exists
+    const [emailUsers] = await conn.query(
+      `SELECT user_id, email, username, password_hash, full_name, role, status, approval_status, approval_note,
+              email_verified, phone, organization, country_code, player_id, google_sub,
+              created_at, last_login_at
+       FROM app_user WHERE LOWER(email) = LOWER(?)`,
+      [email]
+    );
+
+    if (emailUsers.length > 0) {
+      const user = emailUsers[0];
+
+      if (user.status === 'SUSPENDED') {
+        await conn.rollback();
+        return res.status(403).json({
+          error: 'Account has been suspended',
+          code: 'SUSPENDED'
+        });
       }
-    } else if (user.role === 'ORGANIZER') {
-      if (!user.phone || !user.organization) {
-        profileComplete = false;
+
+      if (user.email_verified === 1) {
+        // Verified account: link google_sub and log in (response includes linked:true)
+        // Never change role or approval_status of an existing account
+        await conn.query(
+          'UPDATE app_user SET google_sub = ?, last_login_at = NOW(), failed_logins = 0 WHERE user_id = ?',
+          [googleSub, user.user_id]
+        );
+
+        await logAudit({
+          actor_user_id: user.user_id,
+          action: 'LINK_GOOGLE',
+          entity: 'USER',
+          entity_id: user.user_id,
+          details: { google_sub: googleSub, email, verified_link: true }
+        }, conn);
+
+        await conn.commit();
+
+        let playerRow = null;
+        if (user.player_id) {
+          const [pRows] = await pool.query(
+            'SELECT player_id, name, email, country, country_code, date_of_birth, gender, experience_level, club, fide_id, current_rating FROM player WHERE player_id = ?',
+            [user.player_id]
+          );
+          playerRow = pRows[0] || null;
+        }
+
+        const token = signToken({
+          user_id: user.user_id,
+          role: user.role,
+          player_id: user.player_id
+        });
+        const permissions = getPermissions(user.role, user.approval_status);
+
+        return res.status(200).json({
+          message: 'Google account linked successfully',
+          linked: true,
+          token,
+          user: {
+            user_id: user.user_id,
+            email: user.email,
+            username: user.username,
+            full_name: user.full_name,
+            role: user.role,
+            status: user.status,
+            approval_status: user.approval_status,
+            approval_note: user.approval_note,
+            country_code: user.country_code,
+            email_verified: 1,
+            phone: user.phone,
+            organization: user.organization,
+            player_id: user.player_id,
+            created_at: user.created_at,
+            last_login_at: new Date(),
+            permissions,
+            ...(playerRow ? { player: playerRow } : {})
+          },
+          permissions,
+          approval_status: user.approval_status,
+          approval_note: user.approval_note
+        });
+      } else {
+        // UNVERIFIED password account: link google_sub, SET password_hash = NULL,
+        // set email_verified = 1 and status ACTIVE, and delete its outstanding verification tokens.
+        // Never change role or approval_status.
+        await conn.query(
+          `UPDATE app_user
+           SET google_sub = ?, password_hash = NULL, email_verified = 1, status = 'ACTIVE',
+               last_login_at = NOW(), failed_logins = 0
+           WHERE user_id = ?`,
+          [googleSub, user.user_id]
+        );
+
+        await conn.query(
+          `DELETE FROM auth_token WHERE user_id = ? AND purpose = 'VERIFY_EMAIL'`,
+          [user.user_id]
+        );
+
+        await logAudit({
+          actor_user_id: user.user_id,
+          action: 'LINK_GOOGLE',
+          entity: 'USER',
+          entity_id: user.user_id,
+          details: { google_sub: googleSub, email, takeover: true }
+        }, conn);
+
+        await conn.commit();
+
+        let playerRow = null;
+        if (user.player_id) {
+          const [pRows] = await pool.query(
+            'SELECT player_id, name, email, country, country_code, date_of_birth, gender, experience_level, club, fide_id, current_rating FROM player WHERE player_id = ?',
+            [user.player_id]
+          );
+          playerRow = pRows[0] || null;
+        }
+
+        const token = signToken({
+          user_id: user.user_id,
+          role: user.role,
+          player_id: user.player_id
+        });
+        const permissions = getPermissions(user.role, user.approval_status);
+
+        return res.status(200).json({
+          message: 'Google account linked successfully',
+          linked: true,
+          token,
+          user: {
+            user_id: user.user_id,
+            email: user.email,
+            username: user.username,
+            full_name: user.full_name,
+            role: user.role,
+            status: 'ACTIVE',
+            approval_status: user.approval_status,
+            approval_note: user.approval_note,
+            country_code: user.country_code,
+            email_verified: 1,
+            phone: user.phone,
+            organization: user.organization,
+            player_id: user.player_id,
+            created_at: user.created_at,
+            last_login_at: new Date(),
+            permissions,
+            ...(playerRow ? { player: playerRow } : {})
+          },
+          permissions,
+          approval_status: user.approval_status,
+          approval_note: user.approval_note
+        });
       }
     }
 
-    const token = signToken({
-      user_id: user.user_id,
-      role: user.role,
-      player_id: user.player_id
-    });
+    // 1c. New person: create NOTHING in database.
+    await conn.rollback();
 
-    const permissions = getPermissions(user.role, user.approval_status);
+    const registration_token = jwt.sign(
+      {
+        sub: googleSub,
+        email,
+        name: fullName || '',
+        purpose: 'google_signup'
+      },
+      env.JWT_SECRET,
+      { expiresIn: '15m' }
+    );
 
     return res.status(200).json({
-      message: 'Google login successful',
-      token,
-      profile_complete: profileComplete,
-      user: {
-        ...user,
-        player: playerRow,
-        permissions
-      },
-      permissions,
-      approval_status: user.approval_status,
-      approval_note: user.approval_note
+      needs_registration: true,
+      registration_token,
+      prefill: {
+        email,
+        full_name: fullName || ''
+      }
     });
   } catch (err) {
     await conn.rollback();
+    next(err);
+  } finally {
+    conn.release();
+  }
+};
+
+/**
+ * Completes registration for a new Google user after they supply required profile data.
+ * Verifies the 15m registration token and enforces that email/sub come ONLY from the token.
+ */
+export const googleComplete = async (req, res, next) => {
+  const {
+    registration_token,
+    role: requestedRole,
+    username: rawUsername,
+    full_name: rawFullName,
+    country_code: rawCountryCode,
+    country,
+    accept_terms,
+    date_of_birth,
+    gender,
+    experience_level,
+    club,
+    fide_id,
+    phone,
+    organization
+  } = req.body;
+
+  if (!registration_token) {
+    return res.status(401).json({
+      error: 'Registration token is required',
+      code: 'INVALID_TOKEN'
+    });
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(registration_token, env.JWT_SECRET);
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        error: 'Registration token has expired',
+        code: 'TOKEN_EXPIRED'
+      });
+    }
+    return res.status(401).json({
+      error: 'Invalid registration token',
+      code: 'INVALID_TOKEN'
+    });
+  }
+
+  if (!decoded || decoded.purpose !== 'google_signup' || !decoded.email || !decoded.sub) {
+    return res.status(401).json({
+      error: 'Invalid registration token',
+      code: 'INVALID_TOKEN'
+    });
+  }
+
+  // Security Rule: Take email and sub ONLY from token, never from body
+  const email = String(decoded.email).toLowerCase().trim();
+  const googleSub = String(decoded.sub);
+
+  if (requestedRole === 'ADMIN') {
+    return res.status(400).json({ error: 'Cannot register with administrator privileges' });
+  }
+
+  const role = requestedRole === 'ORGANIZER' ? 'ORGANIZER' : 'PLAYER';
+  const fullName = String(rawFullName || decoded.name || '').trim();
+  if (!fullName) {
+    return res.status(400).json({ error: 'Full name is required', field: 'full_name' });
+  }
+
+  const username = String(rawUsername || '').trim();
+  if (!username) {
+    return res.status(400).json({ error: 'Username is required', field: 'username' });
+  }
+
+  if (!/^[A-Za-z0-9_]{3,20}$/.test(username)) {
+    return res.status(400).json({
+      error: 'Username must be 3-20 characters and contain only letters, numbers, and underscores',
+      field: 'username'
+    });
+  }
+
+  if (RESERVED_USERNAMES.has(username.toLowerCase())) {
+    return res.status(409).json({
+      error: 'This username is reserved or taken. Please choose another username.',
+      field: 'username',
+      code: 'USERNAME_TAKEN'
+    });
+  }
+
+  if (accept_terms !== true) {
+    return res.status(400).json({ error: 'You must accept the terms', field: 'accept_terms' });
+  }
+
+  // Resolve country data
+  const resolved = resolveCountryData(rawCountryCode || country || '');
+  const countryCode = resolved.code;
+  const countryName = resolved.name || country || null;
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // 1. Strict Server-Side Email Uniqueness Check
+    const [existingUsers] = await conn.query(
+      'SELECT user_id FROM app_user WHERE LOWER(email) = LOWER(?)',
+      [email]
+    );
+
+    if (existingUsers.length > 0) {
+      await conn.rollback();
+      return res.status(409).json({
+        error: 'An account with this email address already exists. Please sign in.',
+        field: 'email',
+        code: 'EMAIL_ALREADY_EXISTS'
+      });
+    }
+
+    // 2. Strict Server-Side google_sub Uniqueness Check
+    const [existingSubs] = await conn.query(
+      'SELECT user_id FROM app_user WHERE google_sub = ?',
+      [googleSub]
+    );
+
+    if (existingSubs.length > 0) {
+      await conn.rollback();
+      return res.status(409).json({
+        error: 'This Google account is already linked to another user.',
+        code: 'GOOGLE_ALREADY_LINKED'
+      });
+    }
+
+    // 3. Strict Server-Side Username Uniqueness Check
+    const [existingUsernames] = await conn.query(
+      'SELECT user_id FROM app_user WHERE LOWER(username) = LOWER(?)',
+      [username]
+    );
+
+    if (existingUsernames.length > 0) {
+      await conn.rollback();
+      return res.status(409).json({
+        error: 'This username is already taken. Please choose another username.',
+        field: 'username',
+        code: 'USERNAME_TAKEN'
+      });
+    }
+
+    let playerId = null;
+
+    if (role === 'PLAYER') {
+      const [existingPlayers] = await conn.query(
+        'SELECT player_id FROM player WHERE LOWER(email) = LOWER(?)',
+        [email]
+      );
+
+      if (existingPlayers.length > 0) {
+        const foundPlayerId = existingPlayers[0].player_id;
+        const [linkedUsers] = await conn.query(
+          'SELECT user_id FROM app_user WHERE player_id = ?',
+          [foundPlayerId]
+        );
+        if (linkedUsers.length === 0) {
+          playerId = foundPlayerId;
+          await conn.query(
+            `UPDATE player
+             SET name = ?, country = COALESCE(?, country), country_code = COALESCE(?, country_code),
+                 date_of_birth = COALESCE(?, date_of_birth),
+                 gender = COALESCE(?, gender), experience_level = COALESCE(?, experience_level),
+                 club = COALESCE(?, club), fide_id = COALESCE(?, fide_id)
+             WHERE player_id = ?`,
+            [
+              fullName,
+              countryName,
+              countryCode,
+              date_of_birth || null,
+              gender || 'UNDISCLOSED',
+              experience_level || 'BEGINNER',
+              club || null,
+              fide_id || null,
+              playerId
+            ]
+          );
+        }
+      }
+
+      if (!playerId) {
+        const [playerInsert] = await conn.query(
+          `INSERT INTO player (name, email, country, country_code, date_of_birth, gender, experience_level, club, fide_id, current_rating)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1200)`,
+          [
+            fullName,
+            email,
+            countryName,
+            countryCode,
+            date_of_birth || null,
+            gender || 'UNDISCLOSED',
+            experience_level || 'BEGINNER',
+            club || null,
+            fide_id || null
+          ]
+        );
+        playerId = playerInsert.insertId;
+      }
+    }
+
+    // Insert app_user (no password_hash, google_sub set, email_verified 1, status ACTIVE, approval_status PENDING)
+    const [userInsert] = await conn.query(
+      `INSERT INTO app_user (email, username, password_hash, full_name, role, status, approval_status, email_verified, google_sub, phone, organization, country_code, player_id)
+       VALUES (?, ?, NULL, ?, ?, 'ACTIVE', 'PENDING', 1, ?, ?, ?, ?, ?)`,
+      [
+        email,
+        username,
+        fullName,
+        role,
+        googleSub,
+        phone || null,
+        role === 'ORGANIZER' ? (organization || null) : null,
+        countryCode,
+        playerId
+      ]
+    );
+
+    const newUserId = userInsert.insertId;
+
+    // Audit logs for creation and linking
+    await logAudit({
+      actor_user_id: newUserId,
+      action: 'REGISTER',
+      entity: 'USER',
+      entity_id: newUserId,
+      details: { role, email, username, google: true }
+    }, conn);
+
+    await logAudit({
+      actor_user_id: newUserId,
+      action: 'LINK_GOOGLE',
+      entity: 'USER',
+      entity_id: newUserId,
+      details: { google_sub: googleSub, email }
+    }, conn);
+
+    await conn.commit();
+
+    let playerRow = null;
+    if (playerId) {
+      const [pRows] = await pool.query(
+        'SELECT player_id, name, email, country, country_code, date_of_birth, gender, experience_level, club, fide_id, current_rating FROM player WHERE player_id = ?',
+        [playerId]
+      );
+      playerRow = pRows[0] || null;
+    }
+
+    const token = signToken({
+      user_id: newUserId,
+      role,
+      player_id: playerId
+    });
+    const permissions = getPermissions(role, 'PENDING');
+
+    return res.status(200).json({
+      message: 'Registration completed successfully',
+      token,
+      user: {
+        user_id: newUserId,
+        email,
+        username,
+        full_name: fullName,
+        role,
+        status: 'ACTIVE',
+        approval_status: 'PENDING',
+        approval_note: null,
+        country_code: countryCode,
+        email_verified: 1,
+        phone: phone || null,
+        organization: role === 'ORGANIZER' ? (organization || null) : null,
+        player_id: playerId,
+        created_at: new Date(),
+        last_login_at: new Date(),
+        permissions,
+        ...(playerRow ? { player: playerRow } : {})
+      },
+      permissions,
+      approval_status: 'PENDING',
+      approval_note: null
+    });
+  } catch (err) {
+    await conn.rollback();
+    if (err.code === 'ER_DUP_ENTRY' || err.errno === 1062) {
+      const msg = err.message || '';
+      if (msg.includes('username') || msg.includes('uq_user_username')) {
+        return res.status(409).json({
+          error: 'This username is already taken. Please choose another.',
+          field: 'username',
+          code: 'USERNAME_TAKEN'
+        });
+      }
+      if (msg.includes('email')) {
+        return res.status(409).json({
+          error: 'An account with this email address already exists.',
+          field: 'email',
+          code: 'EMAIL_ALREADY_EXISTS'
+        });
+      }
+      if (msg.includes('google_sub')) {
+        return res.status(409).json({
+          error: 'This Google account is already linked to another user.',
+          code: 'GOOGLE_ALREADY_LINKED'
+        });
+      }
+      return res.status(409).json({
+        error: 'Duplicate registration entry detected.',
+        code: 'DUPLICATE_ENTRY'
+      });
+    }
     next(err);
   } finally {
     conn.release();
@@ -1343,6 +1858,7 @@ export default {
   resendVerification,
   login,
   googleLogin,
+  googleComplete,
   forgotPassword,
   resetPassword,
   getMe,
@@ -1353,6 +1869,7 @@ export default {
   resendVerificationSchema,
   loginSchema,
   googleAuthSchema,
+  googleCompleteSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   updateProfileSchema,

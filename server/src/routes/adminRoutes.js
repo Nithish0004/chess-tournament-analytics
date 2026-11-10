@@ -9,7 +9,8 @@ import {
   reactivateUser,
   updateUserRole,
   getAuditLogs,
-  getAdminOverview
+  getAdminOverview,
+  getDbStatus
 } from '../controllers/adminController.js';
 import { authMiddleware, requireRole } from '../middleware/authMiddleware.js';
 
@@ -20,6 +21,7 @@ router.use(authMiddleware);
 router.use(requireRole('ADMIN'));
 
 router.get('/overview', getAdminOverview);
+router.get('/system/db-status', getDbStatus);
 router.get('/users', getUsers);
 router.get('/users/:id', getUserById);
 router.put('/users/:id', updateUser);
