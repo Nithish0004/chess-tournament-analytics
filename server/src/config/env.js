@@ -15,8 +15,16 @@ if (!JWT_SECRET || JWT_SECRET.trim().length < 32) {
   throw new Error(msg);
 }
 
+const OTP_PEPPER = process.env.OTP_PEPPER;
+if (!OTP_PEPPER || OTP_PEPPER.trim().length < 32) {
+  const msg = 'FATAL: OTP_PEPPER environment variable is required and must be at least 32 characters long.';
+  console.error(msg);
+  throw new Error(msg);
+}
+
 export const env = {
   JWT_SECRET: JWT_SECRET.trim(),
+  OTP_PEPPER: OTP_PEPPER.trim(),
   CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:3000',
   MAIL_TRANSPORT: process.env.MAIL_TRANSPORT || 'console',
   SMTP_HOST: process.env.SMTP_HOST || '',

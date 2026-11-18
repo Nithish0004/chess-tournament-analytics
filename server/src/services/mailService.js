@@ -9,6 +9,13 @@ export const clearCapturedEmails = () => {
   capturedEmails = [];
 };
 
+// Check: Refuse console mode in production environment
+if (env.MAIL_TRANSPORT === 'console' && env.NODE_ENV === 'production') {
+  const errMsg = 'FATAL: MAIL_TRANSPORT=console is refused in production environment. Configure SMTP transport.';
+  console.error(errMsg);
+  throw new Error(errMsg);
+}
+
 let smtpTransporter = null;
 if (env.MAIL_TRANSPORT === 'smtp' && env.SMTP_HOST) {
   smtpTransporter = nodemailer.createTransport({
@@ -20,22 +27,31 @@ if (env.MAIL_TRANSPORT === 'smtp' && env.SMTP_HOST) {
       pass: env.SMTP_PASS
     }
   });
+
+  // Verify connection configuration on startup without logging credentials
+  smtpTransporter.verify().then(() => {
+    console.log(`[MAIL] SMTP transport ready at ${env.SMTP_HOST}:${env.SMTP_PORT} (sender: ${env.MAIL_FROM})`);
+  }).catch((err) => {
+    console.warn(`[MAIL] SMTP transport verification warning: ${err.message}`);
+  });
 }
 
 /**
- * Generic mail dispatcher.
+ * Core mail dispatcher
  */
-const sendMail = async ({ to, subject, text, html, link, token }) => {
-  const mailRecord = { to, subject, text, html, link, token, sentAt: new Date() };
+const sendMail = async ({ to, subject, text, html, code }) => {
+  const mailRecord = { to, subject, text, html, code, sentAt: new Date() };
   capturedEmails.push(mailRecord);
 
   if (env.MAIL_TRANSPORT === 'console') {
-    // Development/console mode: print full verification/reset link to server terminal
+    if (env.NODE_ENV === 'production') {
+      throw new Error('MAIL_TRANSPORT=console is not allowed in production');
+    }
     console.log('\n[CONSOLE MAIL TRANSPORT]');
     console.log(`To: ${to}`);
     console.log(`Subject: ${subject}`);
-    if (link) {
-      console.log(`Link: ${link}`);
+    if (code) {
+      console.log(`Code: [ ${code} ]`);
     } else {
       console.log(`Body: ${text}`);
     }
@@ -53,47 +69,63 @@ const sendMail = async ({ to, subject, text, html, link, token }) => {
         html
       });
     } catch (err) {
-      console.error(`Failed to send email to ${to}:`, err.message);
-      throw err;
+      console.error(`Failed to send email to ${to}: ${err.message}`);
+      const sendErr = new Error('EMAIL_SEND_FAILED');
+      sendErr.code = 'EMAIL_SEND_FAILED';
+      sendErr.status = 503;
+      throw sendErr;
     }
   }
 
-  // Fallback if neither smtp nor console matched
-  console.log(`[MAIL] To: ${to} | Subject: ${subject} | Link: ${link}`);
+  console.log(`[MAIL] Transport "${env.MAIL_TRANSPORT}" captured email to ${to}`);
   return mailRecord;
 };
 
-export const sendVerificationEmail = async (to, token) => {
-  const link = `${env.CLIENT_URL}/verify-email?token=${token}`;
-  const subject = 'Verify your email';
-  const text = `Welcome! Please verify your email by opening the following link in your browser:\n\n${link}\n\nThis link will expire in 24 hours.`;
+/**
+ * "Your ChessTourn verification code" template
+ * 6-digit code large, 10-minute validity, ignore notice, NO LINKS.
+ */
+export const sendVerificationOtpEmail = async (to, code) => {
+  const subject = 'Your ChessTourn verification code';
+  const text = `Your ChessTourn verification code is:\n\n${code}\n\nThis code is valid for 10 minutes.\nIf you did not request this, ignore this e-mail.`;
   const html = `
-    <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-      <h2>Welcome to Chess Tournament Management</h2>
-      <p>Please click the button or link below to verify your email address:</p>
-      <p><a href="${link}" style="background-color: #2563eb; color: #ffffff; padding: 10px 18px; text-decoration: none; border-radius: 4px; display: inline-block;">Verify Email</a></p>
-      <p>Or open this link directly: <a href="${link}">${link}</a></p>
-      <p><small>This link is valid for 24 hours and can only be used once.</small></p>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; background: #0b0b0c; color: #ffffff; border-radius: 12px; border: 1px solid #262628;">
+      <h2 style="margin: 0 0 16px; color: #ffffff; font-size: 20px; font-weight: 600;">ChessTourn Verification</h2>
+      <p style="margin: 0 0 24px; color: #a1a1aa; font-size: 14px; line-height: 1.5;">Use the following 6-digit code to verify your e-mail address:</p>
+      <div style="margin: 0 0 24px; padding: 20px; background: #141416; border: 1px solid #2c2c2f; border-radius: 8px; text-align: center;">
+        <span style="font-family: monospace; font-size: 34px; font-weight: 700; letter-spacing: 8px; color: #e8c27a; display: inline-block;">${code}</span>
+      </div>
+      <p style="margin: 0 0 8px; color: #d4d4d8; font-size: 13px;">This code is valid for <strong>10 minutes</strong>.</p>
+      <p style="margin: 0; color: #71717a; font-size: 12px;">If you did not request this, ignore this e-mail.</p>
     </div>
   `;
-  return sendMail({ to, subject, text, html, link, token });
+  return sendMail({ to, subject, text, html, code });
 };
 
-export const sendPasswordResetEmail = async (to, token) => {
-  const link = `${env.CLIENT_URL}/reset-password?token=${token}`;
-  const subject = 'Reset your password';
-  const text = `You requested a password reset. Please use the following link to choose a new password:\n\n${link}\n\nThis link will expire in 1 hour.`;
+/**
+ * "Your ChessTourn password reset code" template
+ * 6-digit code large, 10-minute validity, ignore notice, NO LINKS.
+ */
+export const sendPasswordResetOtpEmail = async (to, code) => {
+  const subject = 'Your ChessTourn password reset code';
+  const text = `Your ChessTourn password reset code is:\n\n${code}\n\nThis code is valid for 10 minutes.\nIf you did not request this, ignore this e-mail.`;
   const html = `
-    <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-      <h2>Password Reset Request</h2>
-      <p>We received a request to reset your password. Click the link below to choose a new password:</p>
-      <p><a href="${link}" style="background-color: #dc2626; color: #ffffff; padding: 10px 18px; text-decoration: none; border-radius: 4px; display: inline-block;">Reset Password</a></p>
-      <p>Or open this link directly: <a href="${link}">${link}</a></p>
-      <p><small>This link is valid for 1 hour and can only be used once. If you did not request this, you can safely ignore this email.</small></p>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; background: #0b0b0c; color: #ffffff; border-radius: 12px; border: 1px solid #262628;">
+      <h2 style="margin: 0 0 16px; color: #ffffff; font-size: 20px; font-weight: 600;">ChessTourn Password Reset</h2>
+      <p style="margin: 0 0 24px; color: #a1a1aa; font-size: 14px; line-height: 1.5;">Use the following 6-digit code to reset your password:</p>
+      <div style="margin: 0 0 24px; padding: 20px; background: #141416; border: 1px solid #2c2c2f; border-radius: 8px; text-align: center;">
+        <span style="font-family: monospace; font-size: 34px; font-weight: 700; letter-spacing: 8px; color: #e8c27a; display: inline-block;">${code}</span>
+      </div>
+      <p style="margin: 0 0 8px; color: #d4d4d8; font-size: 13px;">This code is valid for <strong>10 minutes</strong>.</p>
+      <p style="margin: 0; color: #71717a; font-size: 12px;">If you did not request this, ignore this e-mail.</p>
     </div>
   `;
-  return sendMail({ to, subject, text, html, link, token });
+  return sendMail({ to, subject, text, html, code });
 };
+
+// Aliases for compatibility
+export const sendVerificationEmail = sendVerificationOtpEmail;
+export const sendPasswordResetEmail = sendPasswordResetOtpEmail;
 
 export const sendAccountApprovedEmail = async (to, fullName) => {
   const subject = 'Your account was approved';
@@ -124,6 +156,8 @@ export const sendAccountRejectedEmail = async (to, fullName, note) => {
 };
 
 export default {
+  sendVerificationOtpEmail,
+  sendPasswordResetOtpEmail,
   sendVerificationEmail,
   sendPasswordResetEmail,
   sendAccountApprovedEmail,

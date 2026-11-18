@@ -32,6 +32,25 @@ export const availabilityRateLimiter = rateLimit({
 });
 
 /**
+ * Rate limiter for verify-email endpoint (per IP and per email).
+ */
+export const verifyEmailRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const email = (req.body?.email || '').trim().toLowerCase();
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    return `${ip}:${email}`;
+  },
+  message: {
+    error: 'Too many verification attempts, please try again shortly.'
+  },
+  skip: () => isTest()
+});
+
+/**
  * Rate limiter for login endpoint (~10 requests per 15 minutes per IP).
  */
 export const loginRateLimiter = rateLimit({
@@ -48,5 +67,6 @@ export const loginRateLimiter = rateLimit({
 export default {
   authRateLimiter,
   availabilityRateLimiter,
+  verifyEmailRateLimiter,
   loginRateLimiter
 };
