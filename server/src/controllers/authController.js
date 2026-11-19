@@ -7,7 +7,14 @@ import { pool } from '../config/db.js';
 import { env } from '../config/env.js';
 import { signToken } from '../utils/jwt.js';
 import { hashToken, createAuthToken } from '../utils/tokens.js';
-import { sendVerificationEmail, sendPasswordResetEmail, sendAccountApprovedEmail } from '../services/mailService.js';
+import {
+  sendVerificationEmail,
+  sendPasswordResetEmail,
+  sendVerificationOtpEmail,
+  sendPasswordResetOtpEmail,
+  sendAccountApprovedEmail
+} from '../services/mailService.js';
+import { issueOtp, verifyOtp } from '../services/otpService.js';
 import { getPermissions } from '../middleware/authMiddleware.js';
 import { verifyGoogleIdToken } from '../services/googleVerifier.js';
 import { logAudit } from '../utils/auditLogger.js';
@@ -156,7 +163,9 @@ export const registerSchema = z.discriminatedUnion('role', [
 });
 
 export const verifyEmailSchema = z.object({
-  token: z.string().min(1, 'Token is required')
+  email: z.string().trim().email('Invalid email address').optional(),
+  code: z.string().trim().optional(),
+  token: z.string().trim().optional()
 });
 
 export const resendVerificationSchema = z.object({
@@ -230,7 +239,9 @@ export const forgotPasswordSchema = z.object({
 });
 
 export const resetPasswordSchema = z.object({
-  token: z.string().min(1, 'Token is required'),
+  email: z.string().trim().email('Invalid email address').optional(),
+  code: z.string().trim().optional(),
+  token: z.string().trim().optional(),
   password: passwordValidation,
   confirm_password: z.string().min(1, 'Please confirm your password')
 }).refine(data => data.password === data.confirm_password, {
@@ -546,25 +557,37 @@ export const register = async (req, res, next) => {
       [username, email, passwordHash, role, playerId]
     );
 
-    // Create 24h verification token
-    const { token } = await createAuthToken(conn, {
-      userId: newUserId,
-      purpose: 'VERIFY_EMAIL',
-      expiresInHours: 24
-    });
-
     await conn.commit();
 
-    // Send verification email
-    await sendVerificationEmail(email, token);
+    // Issue 6-digit VERIFY_EMAIL OTP
+    let otpData;
+    try {
+      otpData = await issueOtp(newUserId, 'VERIFY_EMAIL');
+      await logAudit({
+        actor_user_id: newUserId,
+        action: 'OTP_ISSUED',
+        entity: 'USER',
+        entity_id: newUserId,
+        details: { purpose: 'VERIFY_EMAIL', email }
+      });
+      await sendVerificationOtpEmail(email, otpData.code);
+    } catch (mailErr) {
+      if (mailErr.code === 'EMAIL_SEND_FAILED' || mailErr.status === 503) {
+        return res.status(503).json({
+          error: 'Failed to send verification email. Please try again shortly.',
+          code: 'EMAIL_SEND_FAILED'
+        });
+      }
+      throw mailErr;
+    }
 
     return res.status(200).json({
-      message: 'Account created successfully! A verification link has been sent to your email.',
+      message: 'Account created successfully! A 6-digit verification code has been sent to your email.',
       email,
       username,
       user_id: newUserId,
-      verification_token: token,
-      verify_url: `/verify-email?token=${token}`
+      expires_in: otpData.expires_in,
+      resend_after: otpData.resend_after
     });
   } catch (err) {
     await conn.rollback();
@@ -599,106 +622,205 @@ export const register = async (req, res, next) => {
 };
 
 export const verifyEmail = async (req, res, next) => {
-  const { token } = req.body;
-  const tokenHash = hashToken(token);
+  const { email: rawEmail, code: rawCode, token } = req.body || {};
 
-  const conn = await pool.getConnection();
-  try {
-    await conn.beginTransaction();
-
-    const [rows] = await conn.query(
-      `SELECT t.token_id, t.user_id, t.expires_at, t.used_at,
-              u.role, u.status, u.approval_status, u.email_verified
-       FROM auth_token t
-       JOIN app_user u ON u.user_id = t.user_id
-       WHERE t.token_hash = ? AND t.purpose = 'VERIFY_EMAIL'`,
-      [tokenHash]
-    );
-
-    if (rows.length === 0 || rows[0].used_at !== null) {
-      await conn.rollback();
-      return res.status(400).json({
-        error: 'Invalid or already used verification token',
-        code: 'INVALID_TOKEN'
-      });
-    }
-
-    const tokenRow = rows[0];
-    if (new Date(tokenRow.expires_at) < new Date()) {
-      await conn.rollback();
-      return res.status(400).json({
-        error: 'Verification token has expired',
-        code: 'TOKEN_EXPIRED'
-      });
-    }
-
-    // Mark token used
-    await conn.query('UPDATE auth_token SET used_at = NOW() WHERE token_id = ?', [tokenRow.token_id]);
-
-    // Email verification -> status ACTIVE; approval_status stays PENDING for PLAYER and ORGANIZER
-    await conn.query(
-      "UPDATE app_user SET email_verified = 1, status = 'ACTIVE' WHERE user_id = ?",
-      [tokenRow.user_id]
-    );
-
-    await conn.commit();
-
-    return res.status(200).json({
-      message: 'Email verified successfully',
-      status: 'ACTIVE'
+  // If old link-token route was invoked
+  if (token && !rawCode) {
+    return res.status(410).json({
+      error: 'Email verification links have retired. Please use the 6-digit verification code sent to your email.',
+      code: 'LINK_VERIFICATION_RETIRED'
     });
-  } catch (err) {
-    await conn.rollback();
-    next(err);
-  } finally {
-    conn.release();
   }
-};
 
-export const resendVerification = async (req, res, next) => {
-  const { email: rawEmail } = req.body;
   const email = (rawEmail || '').trim().toLowerCase();
-  const genericResponse = {
-    message: 'If this email can be registered, a verification link has been sent'
-  };
+  const code = (rawCode || '').trim();
+
+  if (!email || !code) {
+    return res.status(400).json({
+      error: 'Email and 6-digit verification code are required',
+      code: 'INVALID_CODE',
+      attempts_left: 4
+    });
+  }
 
   try {
     const [users] = await pool.query(
-      'SELECT user_id, email, status, email_verified FROM app_user WHERE email = ?',
+      `SELECT user_id, email, username, full_name, role, status, approval_status,
+              approval_note, country_code, email_verified, player_id
+       FROM app_user
+       WHERE LOWER(email) = LOWER(?)`,
       [email]
     );
 
-    if (users.length === 0 || users[0].email_verified === 1) {
-      return res.status(200).json(genericResponse);
+    if (users.length === 0) {
+      // Unknown email gets the same answer as a wrong code
+      await logAudit({
+        action: 'OTP_FAILED',
+        entity: 'USER',
+        details: { purpose: 'VERIFY_EMAIL', email, reason: 'UNKNOWN_USER' }
+      });
+      return res.status(400).json({
+        error: 'Invalid verification code',
+        code: 'INVALID_CODE',
+        attempts_left: 4
+      });
     }
 
     const user = users[0];
 
-    // 60 s cooldown check per account
-    const [recentTokens] = await pool.query(
-      `SELECT created_at FROM auth_token
-       WHERE user_id = ? AND purpose = 'VERIFY_EMAIL'
-       ORDER BY created_at DESC LIMIT 1`,
-      [user.user_id]
-    );
+    const result = await verifyOtp(user.user_id, 'VERIFY_EMAIL', code);
 
-    if (recentTokens.length > 0) {
-      const elapsedMs = Date.now() - new Date(recentTokens[0].created_at).getTime();
-      if (elapsedMs < 60 * 1000) {
-        return res.status(200).json(genericResponse);
-      }
+    if (result.ok) {
+      // Set email_verified=1, status ACTIVE (approval_status unchanged)
+      await pool.query(
+        "UPDATE app_user SET email_verified = 1, status = 'ACTIVE' WHERE user_id = ?",
+        [user.user_id]
+      );
+
+      // Also update user_account if present
+      await pool.query(
+        "UPDATE user_account SET email = ? WHERE email = ?",
+        [user.email, user.email]
+      ).catch(() => {});
+
+      await logAudit({
+        actor_user_id: user.user_id,
+        action: 'OTP_VERIFIED',
+        entity: 'USER',
+        entity_id: user.user_id,
+        details: { purpose: 'VERIFY_EMAIL' }
+      });
+
+      // Issue JWT token with login response shape
+      const token = signToken({
+        user_id: user.user_id,
+        role: user.role,
+        player_id: user.player_id
+      });
+      const permissions = getPermissions(user.role, user.approval_status);
+
+      return res.status(200).json({
+        message: 'Email verified successfully',
+        token,
+        user: {
+          user_id: user.user_id,
+          account_id: user.user_id,
+          email: user.email,
+          username: user.username,
+          full_name: user.full_name,
+          role: user.role,
+          status: 'ACTIVE',
+          approval_status: user.approval_status,
+          approval_note: user.approval_note,
+          country_code: user.country_code,
+          email_verified: 1,
+          player_id: user.player_id,
+          permissions
+        }
+      });
     }
 
-    const { token } = await createAuthToken(pool, {
-      userId: user.user_id,
-      purpose: 'VERIFY_EMAIL',
-      expiresInHours: 24
-    });
+    // Failure cases
+    if (result.reason === 'LOCKED') {
+      await logAudit({
+        actor_user_id: user.user_id,
+        action: 'OTP_LOCKED',
+        entity: 'USER',
+        entity_id: user.user_id,
+        details: { purpose: 'VERIFY_EMAIL' }
+      });
+      return res.status(429).json({
+        error: 'Too many failed attempts. Code locked. Please request a new verification code',
+        code: 'TOO_MANY_ATTEMPTS'
+      });
+    }
 
-    await sendVerificationEmail(email, token);
+    if (result.reason === 'EXPIRED') {
+      await logAudit({
+        actor_user_id: user.user_id,
+        action: 'OTP_FAILED',
+        entity: 'USER',
+        entity_id: user.user_id,
+        details: { purpose: 'VERIFY_EMAIL', reason: 'EXPIRED' }
+      });
+      return res.status(400).json({
+        error: 'Verification code has expired. Please request a new code',
+        code: 'CODE_EXPIRED'
+      });
+    }
+
+    await logAudit({
+      actor_user_id: user.user_id,
+      action: 'OTP_FAILED',
+      entity: 'USER',
+      entity_id: user.user_id,
+      details: { purpose: 'VERIFY_EMAIL', reason: 'INVALID', attempts_left: result.attempts_left }
+    });
+    return res.status(400).json({
+      error: 'Invalid verification code',
+      code: 'INVALID_CODE',
+      attempts_left: result.attempts_left
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const resendVerification = async (req, res, next) => {
+  const { email: rawEmail } = req.body || {};
+  const email = (rawEmail || '').trim().toLowerCase();
+  const genericResponse = {
+    message: 'If an unverified account exists for this email, a new verification code has been sent',
+    resend_after: 60
+  };
+
+  if (!email) {
+    return res.status(200).json(genericResponse);
+  }
+
+  try {
+    const [users] = await pool.query(
+      'SELECT user_id, email, status, email_verified FROM app_user WHERE LOWER(email) = LOWER(?)',
+      [email]
+    );
+
+    if (users.length > 0 && users[0].status === 'PENDING_EMAIL') {
+      const user = users[0];
+      const otpData = await issueOtp(user.user_id, 'VERIFY_EMAIL');
+      await logAudit({
+        actor_user_id: user.user_id,
+        action: 'OTP_ISSUED',
+        entity: 'USER',
+        entity_id: user.user_id,
+        details: { purpose: 'VERIFY_EMAIL', email }
+      });
+      try {
+        await sendVerificationOtpEmail(user.email, otpData.code);
+      } catch (mailErr) {
+        if (mailErr.code === 'EMAIL_SEND_FAILED' || mailErr.status === 503) {
+          return res.status(503).json({
+            error: 'Failed to send verification email. Please try again shortly.',
+            code: 'EMAIL_SEND_FAILED'
+          });
+        }
+        throw mailErr;
+      }
+      return res.status(200).json({
+        ...genericResponse,
+        resend_after: otpData.resend_after,
+        expires_in: otpData.expires_in
+      });
+    }
 
     return res.status(200).json(genericResponse);
   } catch (err) {
+    if (err.status === 429) {
+      return res.status(429).json({
+        error: err.message,
+        code: err.code || 'TOO_MANY_ATTEMPTS',
+        retry_after: err.retry_after
+      });
+    }
     next(err);
   }
 };
@@ -843,10 +965,11 @@ export const login = async (req, res, next) => {
     }
 
     // Password matched: check verification and suspension status
-    if (user.status === 'PENDING_EMAIL') {
+    if (user.status === 'PENDING_EMAIL' || !user.email_verified) {
       return res.status(403).json({
         error: 'Please verify your email before logging in',
-        code: 'EMAIL_NOT_VERIFIED'
+        code: 'EMAIL_NOT_VERIFIED',
+        email: user.email
       });
     }
 
@@ -914,108 +1037,219 @@ export const login = async (req, res, next) => {
 };
 
 export const forgotPassword = async (req, res, next) => {
-  const { email: rawEmail } = req.body;
+  const { email: rawEmail } = req.body || {};
   const email = (rawEmail || '').trim().toLowerCase();
   const genericResponse = {
-    message: 'If this email is registered, password reset instructions have been sent'
+    message: 'If this email is registered, password reset instructions have been sent',
+    resend_after: 60
   };
 
-  const conn = await pool.getConnection();
-  try {
-    await conn.beginTransaction();
+  if (!email) {
+    return res.status(200).json(genericResponse);
+  }
 
-    const [users] = await conn.query(
-      'SELECT user_id, email FROM app_user WHERE email = ?',
+  try {
+    const [users] = await pool.query(
+      'SELECT user_id, email, email_verified, status FROM app_user WHERE LOWER(email) = LOWER(?)',
       [email]
     );
 
-    if (users.length > 0) {
+    if (users.length > 0 && users[0].email_verified === 1) {
       const user = users[0];
-      // Invalidate older unused reset tokens
-      await conn.query(
-        `UPDATE auth_token
-         SET used_at = NOW()
-         WHERE user_id = ? AND purpose = 'RESET_PASSWORD' AND used_at IS NULL`,
-        [user.user_id]
-      );
-
-      // Create new 1h reset token
-      const { token } = await createAuthToken(conn, {
-        userId: user.user_id,
-        purpose: 'RESET_PASSWORD',
-        expiresInHours: 1
+      const otpData = await issueOtp(user.user_id, 'RESET_PASSWORD');
+      await logAudit({
+        actor_user_id: user.user_id,
+        action: 'OTP_ISSUED',
+        entity: 'USER',
+        entity_id: user.user_id,
+        details: { purpose: 'RESET_PASSWORD', email }
       });
-
-      await conn.commit();
-      await sendPasswordResetEmail(email, token);
-    } else {
-      await conn.commit();
+      try {
+        await sendPasswordResetOtpEmail(user.email, otpData.code);
+      } catch (mailErr) {
+        if (mailErr.code === 'EMAIL_SEND_FAILED' || mailErr.status === 503) {
+          return res.status(503).json({
+            error: 'Failed to send password reset email. Please try again shortly.',
+            code: 'EMAIL_SEND_FAILED'
+          });
+        }
+        throw mailErr;
+      }
+      return res.status(200).json({
+        ...genericResponse,
+        resend_after: otpData.resend_after,
+        expires_in: otpData.expires_in
+      });
     }
 
     return res.status(200).json(genericResponse);
   } catch (err) {
-    await conn.rollback();
+    if (err.status === 429) {
+      return res.status(429).json({
+        error: err.message,
+        code: err.code || 'TOO_MANY_ATTEMPTS',
+        retry_after: err.retry_after
+      });
+    }
     next(err);
-  } finally {
-    conn.release();
   }
 };
 
 export const resetPassword = async (req, res, next) => {
-  const { token, password } = req.body;
-  const tokenHash = hashToken(token);
+  const { email: rawEmail, code: rawCode, token, password, confirm_password } = req.body || {};
 
-  const conn = await pool.getConnection();
+  // If old link-token route was invoked
+  if (token && !rawCode) {
+    return res.status(410).json({
+      error: 'Password reset links have retired. Please use the 6-digit reset code sent to your email.',
+      code: 'LINK_RESET_RETIRED'
+    });
+  }
+
+  const email = (rawEmail || '').trim().toLowerCase();
+  const code = (rawCode || '').trim();
+
+  if (!email || !code) {
+    return res.status(400).json({
+      error: 'Email and 6-digit reset code are required',
+      code: 'INVALID_CODE',
+      attempts_left: 4
+    });
+  }
+
+  // Validate password confirmation
+  if (!password || !confirm_password) {
+    return res.status(400).json({
+      error: 'Password and password confirmation are required',
+      code: 'VALIDATION_ERROR'
+    });
+  }
+
+  if (password !== confirm_password) {
+    return res.status(400).json({
+      error: 'Passwords do not match',
+      code: 'PASSWORD_MISMATCH'
+    });
+  }
+
+  // Password policy: min 8, uppercase, lowercase, number, special char
+  const pwdRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+  if (!pwdRegex.test(password)) {
+    return res.status(400).json({
+      error: 'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&)',
+      code: 'WEAK_PASSWORD'
+    });
+  }
+
   try {
-    await conn.beginTransaction();
-
-    const [tokens] = await conn.query(
-      `SELECT token_id, user_id, expires_at, used_at
-       FROM auth_token
-       WHERE token_hash = ? AND purpose = 'RESET_PASSWORD'`,
-      [tokenHash]
+    const [users] = await pool.query(
+      `SELECT user_id, email, username FROM app_user WHERE LOWER(email) = LOWER(?)`,
+      [email]
     );
 
-    if (tokens.length === 0 || tokens[0].used_at !== null) {
-      await conn.rollback();
+    if (users.length === 0) {
+      await logAudit({
+        action: 'OTP_FAILED',
+        entity: 'USER',
+        details: { purpose: 'RESET_PASSWORD', email, reason: 'UNKNOWN_USER' }
+      });
       return res.status(400).json({
-        error: 'Invalid or already used reset token',
-        code: 'INVALID_TOKEN'
+        error: 'Invalid reset code',
+        code: 'INVALID_CODE',
+        attempts_left: 4
       });
     }
 
-    const tokenRow = tokens[0];
-    if (new Date(tokenRow.expires_at) < new Date()) {
-      await conn.rollback();
-      return res.status(400).json({
-        error: 'Reset token has expired',
-        code: 'TOKEN_EXPIRED'
+    const user = users[0];
+
+    const result = await verifyOtp(user.user_id, 'RESET_PASSWORD', code);
+
+    if (result.ok) {
+      const newHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+
+      // Store new hash, clear failed_logins and locked_until (works for Google users setting first password too)
+      await pool.query(
+        `UPDATE app_user
+         SET password_hash = ?, failed_logins = 0, locked_until = NULL
+         WHERE user_id = ?`,
+        [newHash, user.user_id]
+      );
+
+      // Also update user_account if present
+      await pool.query(
+        `UPDATE user_account SET password_hash = ? WHERE LOWER(email) = LOWER(?)`,
+        [newHash, user.email]
+      ).catch(() => {});
+
+      // Delete other unused codes for this account
+      await pool.query(
+        `DELETE FROM email_otp WHERE user_id = ? AND used_at IS NULL`,
+        [user.user_id]
+      );
+
+      await logAudit({
+        actor_user_id: user.user_id,
+        action: 'OTP_VERIFIED',
+        entity: 'USER',
+        entity_id: user.user_id,
+        details: { purpose: 'RESET_PASSWORD' }
+      });
+
+      await logAudit({
+        actor_user_id: user.user_id,
+        action: 'PASSWORD_RESET',
+        entity: 'USER',
+        entity_id: user.user_id,
+        details: { method: 'OTP' }
+      });
+
+      return res.status(200).json({
+        message: 'Password reset successfully! You can now log in with your new password.'
       });
     }
 
-    const newHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    if (result.reason === 'LOCKED') {
+      await logAudit({
+        actor_user_id: user.user_id,
+        action: 'OTP_LOCKED',
+        entity: 'USER',
+        entity_id: user.user_id,
+        details: { purpose: 'RESET_PASSWORD' }
+      });
+      return res.status(429).json({
+        error: 'Too many failed attempts. Code locked. Please request a new reset code',
+        code: 'TOO_MANY_ATTEMPTS'
+      });
+    }
 
-    // Mark token used
-    await conn.query('UPDATE auth_token SET used_at = NOW() WHERE token_id = ?', [tokenRow.token_id]);
+    if (result.reason === 'EXPIRED') {
+      await logAudit({
+        actor_user_id: user.user_id,
+        action: 'OTP_FAILED',
+        entity: 'USER',
+        entity_id: user.user_id,
+        details: { purpose: 'RESET_PASSWORD', reason: 'EXPIRED' }
+      });
+      return res.status(400).json({
+        error: 'Reset code has expired. Please request a new code',
+        code: 'CODE_EXPIRED'
+      });
+    }
 
-    // Update password hash and reset failed_logins / locked_until
-    await conn.query(
-      `UPDATE app_user
-       SET password_hash = ?, failed_logins = 0, locked_until = NULL
-       WHERE user_id = ?`,
-      [newHash, tokenRow.user_id]
-    );
-
-    await conn.commit();
-
-    return res.status(200).json({
-      message: 'Password has been reset successfully'
+    await logAudit({
+      actor_user_id: user.user_id,
+      action: 'OTP_FAILED',
+      entity: 'USER',
+      entity_id: user.user_id,
+      details: { purpose: 'RESET_PASSWORD', reason: 'INVALID', attempts_left: result.attempts_left }
+    });
+    return res.status(400).json({
+      error: 'Invalid reset code',
+      code: 'INVALID_CODE',
+      attempts_left: result.attempts_left
     });
   } catch (err) {
-    await conn.rollback();
     next(err);
-  } finally {
-    conn.release();
   }
 };
 

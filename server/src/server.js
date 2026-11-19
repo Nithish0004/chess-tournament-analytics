@@ -28,13 +28,32 @@ const server = app.listen(PORT, async () => {
     `);
     const schemaType = cols.length > 0 ? 'new' : 'old';
     console.log(`Connected to database ${dbName} at ${host}:${port} (schema: ${schemaType})`);
+
+    // Maintenance: Execute initial email_otp cleanup
+    try {
+      await pool.query('CALL purge_email_otps()');
+    } catch (purgeErr) {
+      console.warn('[MAINTENANCE] purge_email_otps warning:', purgeErr.message);
+    }
   } catch (err) {
     console.error('Database connection failed on startup:', err.message);
   }
 });
 
+// Periodic maintenance: Purge expired and old used OTPs once a day (24 hours)
+const purgeInterval = setInterval(async () => {
+  try {
+    await pool.query('CALL purge_email_otps()');
+    console.log('[MAINTENANCE] Daily purge_email_otps executed.');
+  } catch (err) {
+    console.warn('[MAINTENANCE] Daily purge_email_otps warning:', err.message);
+  }
+}, 24 * 60 * 60 * 1000);
+purgeInterval.unref();
+
 // Graceful shutdown handling
 const shutdown = async () => {
+  clearInterval(purgeInterval);
   console.log('\nShutting down server gracefully...');
   server.close(async () => {
     try {

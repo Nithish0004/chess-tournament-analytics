@@ -68,15 +68,17 @@ Content-Type: application/json
   "accept_terms": true
 }
 
-# 1.4 Verify Email (transitions status from PENDING_EMAIL to ACTIVE; approval_status stays PENDING)
+# 1.4 Verify Email with 6-Digit OTP Code
+# Sets email_verified=1, status ACTIVE (approval_status unchanged) and signs user in immediately
 POST {{baseUrl}}/api/auth/verify-email
 Content-Type: application/json
 
 {
-  "token": "REPLACE_WITH_HEX_TOKEN_FROM_EMAIL_OR_CONSOLE"
+  "email": "hikaru@chess.example",
+  "code": "123456"
 }
 
-# 1.5 Resend Verification Email (60s cooldown per account)
+# 1.5 Resend Verification Code (60s cooldown, 5 codes/hr limit)
 POST {{baseUrl}}/api/auth/resend-verification
 Content-Type: application/json
 
@@ -171,7 +173,7 @@ Content-Type: application/json
   "accept_terms": true
 }
 
-# 1.8 Forgot Password (generic 200 response)
+# 1.8 Forgot Password (sends 6-digit RESET_PASSWORD OTP to verified email)
 POST {{baseUrl}}/api/auth/forgot-password
 Content-Type: application/json
 
@@ -179,12 +181,13 @@ Content-Type: application/json
   "email": "hikaru@chess.example"
 }
 
-# 1.9 Reset Password
+# 1.9 Reset Password with 6-Digit OTP Code
 POST {{baseUrl}}/api/auth/reset-password
 Content-Type: application/json
 
 {
-  "token": "REPLACE_WITH_RESET_TOKEN",
+  "email": "hikaru@chess.example",
+  "code": "123456",
   "password": "NewSecretPass123!",
   "confirm_password": "NewSecretPass123!"
 }

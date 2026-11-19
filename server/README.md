@@ -78,13 +78,14 @@ DB_PASSWORD=chess_password
 DB_NAME=chess_scratch
 PORT=5000
 JWT_SECRET=chess_tournament_super_secret_jwt_key_2026_at_least_32_chars
+OTP_PEPPER=change_me_to_a_secure_pepper_at_least_32_chars_long
 CLIENT_URL=http://localhost:3000
-MAIL_TRANSPORT=console
-SMTP_HOST=smtp.example.com
+MAIL_TRANSPORT=console # Use 'smtp' in production; 'console' is refused when NODE_ENV=production
+SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=user@example.com
-SMTP_PASS=password
-MAIL_FROM="Chess Tournament" <noreply@chess-tournament.com>
+SMTP_PASS=app_password
+MAIL_FROM="ChessTourn" <noreply@chess-tournament.com>
 GOOGLE_CLIENT_ID=
 ```
 
@@ -92,7 +93,7 @@ GOOGLE_CLIENT_ID=
 
 ---
 
-## Account Approval Flow
+## Account Approval & OTP Verification Flow
 
 ```
 [ User Registers ]
@@ -101,7 +102,7 @@ GOOGLE_CLIENT_ID=
 app_user.status = 'PENDING_EMAIL'
 app_user.approval_status = 'PENDING'
        │
-       │ (User verifies email via token)
+       │ (User submits 6-digit OTP from email)
        ▼
 app_user.status = 'ACTIVE'
 app_user.approval_status = 'PENDING'
@@ -129,12 +130,35 @@ Actions fully unlocked      Actions remain blocked with 403 NOT_APPROVED
 1. **Registration (`POST /api/auth/register`)**:
    - `PLAYER`: Requires `full_name`, `email`, `password` + `confirm_password`, `date_of_birth` (in the past, age >= 5), `gender` (`MALE`|`FEMALE`|`OTHER`|`UNDISCLOSED`), `experience_level` (`BEGINNER`|`INTERMEDIATE`|`ADVANCED`|`EXPERT`), `accept_terms`. Creates linked `player` row (rating 1200) and `app_user` in one transaction. Initial: `status = 'PENDING_EMAIL'`, `approval_status = 'PENDING'`. Phone stored in `app_user.phone`.
    - `ORGANIZER`: Requires `full_name`, `email`, `password` + `confirm_password`, `phone` (required), `organization` (required), `accept_terms`. Creates `app_user` with `status = 'PENDING_EMAIL'`, `approval_status = 'PENDING'`.
-   - Sends verification email with a 32-byte hex token (SHA-256 stored in `auth_token`).
+   - Generates a 6-digit cryptographic OTP code via `crypto.randomInt` with 10-minute validity (`expires_at = DATE_ADD(NOW(), INTERVAL 10 MINUTE)`).
+   - Only an HMAC-SHA256 hash using `OTP_PEPPER` is stored in `email_otp.code_hash`. Plain codes are never saved or logged.
+   - Sends verification email with the 6-digit code, 10-minute validity, ignore notice, and NO links.
+   - Returns `{ message, email, username, user_id, expires_in: 600, resend_after: 60 }`.
 
 2. **Email Verification (`POST /api/auth/verify-email`)**:
-   - Consumes token; sets `email_verified = 1` and `status = 'ACTIVE'`.
-   - `approval_status` stays `'PENDING'`.
-   - Note: Status `PENDING_APPROVAL` no longer exists (allowed `app_user.status`: `PENDING_EMAIL`, `ACTIVE`, `SUSPENDED`).
+   - Submits `{ email, code }` (rate limited per IP and per email).
+   - Atomically increments `attempts` before checking, compares hashes via `crypto.timingSafeEqual`.
+   - Wrong code returns 400 `INVALID_CODE` with remaining `attempts_left`.
+   - 5 failed attempts locks the code (`429 TOO_MANY_ATTEMPTS`).
+   - Expired code returns `400 CODE_EXPIRED`.
+   - Unknown email receives generic 400 `INVALID_CODE` with `attempts_left: 4`.
+   - On success: marks code used (`used_at = NOW()`), sets `email_verified = 1` and `status = 'ACTIVE'`, keeps `approval_status` unchanged, and immediately returns a login session JWT token.
+   - Old link-based route returns `410 LINK_VERIFICATION_RETIRED`.
+
+3. **Resending Verification Codes (`POST /api/auth/resend-verification`)**:
+   - Submits `{ email }`.
+   - Enforces 60-second cooldown between requests and at most 5 codes per hour per user/purpose (returns 429 with `retry_after` seconds if violated).
+   - Deletes older unused codes of that user and purpose.
+
+4. **Password Reset by Code (`POST /api/auth/forgot-password` & `POST /api/auth/reset-password`)**:
+   - `POST /api/auth/forgot-password { email }`: Generates and emails a 6-digit `RESET_PASSWORD` code to verified accounts (generic 200 response, obeys cooldown and hourly cap).
+   - `POST /api/auth/reset-password { email, code, password, confirm_password }`: Verifies the 6-digit code, enforces password complexity, hashes with bcrypt (12 rounds), clears `failed_logins = 0` and `locked_until = NULL`, and deletes unused OTP codes.
+   - Accounts created via Google can use this to establish a first password.
+   - Old link-based route returns `410 LINK_RESET_RETIRED`.
+
+5. **OTP Maintenance & Cleanup**:
+   - Daily automated purge via `CALL purge_email_otps()` on server startup and every 24 hours.
+   - Manual/cron script available: `node scripts/purge-otps.js`.
 
 3. **Login & Exploration (`POST /api/auth/login`, `GET /api/auth/me`)**:
    - All `ACTIVE` users can log in regardless of approval status. Suspended / unverified accounts remain blocked.

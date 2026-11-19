@@ -39,6 +39,7 @@ export const verifyEmailRateLimiter = rateLimit({
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
   keyGenerator: (req) => {
     const email = (req.body?.email || '').trim().toLowerCase();
     const ip = req.ip || req.connection?.remoteAddress || 'unknown';

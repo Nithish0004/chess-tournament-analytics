@@ -12,7 +12,7 @@ export const RoleSections = () => {
     'Interactive rating progression charts across tournament history',
     'Deep-dive win / draw / loss distribution analytics by piece color',
     'Machine learning tournament projections and matchup forecasts',
-    '(Coming soon) 1-click registration & automated check-in approvals',
+    '1-click registration & arbiter check-in approvals',
   ];
 
   const organizerBullets = [

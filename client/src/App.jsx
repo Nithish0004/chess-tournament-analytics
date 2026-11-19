@@ -11,6 +11,7 @@ import { Landing } from './pages/Landing';
 import { Login } from './pages/Login';
 import { AdminLogin } from './pages/AdminLogin';
 import { Register } from './pages/Register';
+import { RegisterGoogle } from './pages/RegisterGoogle';
 import { VerifyEmail } from './pages/VerifyEmail';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { ResetPassword } from './pages/ResetPassword';
@@ -159,13 +160,14 @@ function AppContent() {
   }
 
   // If on authentication routes, render standalone split-screen without sidebar & topbar
-  if (['/login', '/login/admin', '/admin/login', '/register', '/verify-email', '/forgot-password', '/reset-password', '/complete-profile'].includes(location.pathname)) {
+  if (['/login', '/login/admin', '/admin/login', '/register', '/register/google', '/verify-email', '/forgot-password', '/reset-password', '/complete-profile'].includes(location.pathname)) {
     return (
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/login/admin" element={<AdminLogin />} />
         <Route path="/admin/login" element={<Navigate to="/login/admin" replace />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/register/google" element={<RegisterGoogle />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />

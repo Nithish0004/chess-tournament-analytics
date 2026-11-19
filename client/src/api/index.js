@@ -31,8 +31,9 @@ export const registerApi = async (registrationData) => {
   return data;
 };
 
-export const verifyEmailApi = async (token) => {
-  const { data } = await api.post('/auth/verify-email', { token });
+export const verifyEmailApi = async (payload) => {
+  const body = typeof payload === 'string' ? { token: payload } : payload;
+  const { data } = await api.post('/auth/verify-email', body);
   return data;
 };
 
@@ -46,17 +47,18 @@ export const googleAuthApi = async ({ id_token, role }) => {
   return data;
 };
 
+export const googleCompleteApi = async (completionData) => {
+  const { data } = await api.post('/auth/google/complete', completionData);
+  return data;
+};
+
 export const forgotPasswordApi = async (email) => {
   const { data } = await api.post('/auth/forgot-password', { email });
   return data;
 };
 
-export const resetPasswordApi = async ({ token, password, confirm_password }) => {
-  const { data } = await api.post('/auth/reset-password', {
-    token,
-    password,
-    confirm_password
-  });
+export const resetPasswordApi = async (payload) => {
+  const { data } = await api.post('/auth/reset-password', payload);
   return data;
 };
 
