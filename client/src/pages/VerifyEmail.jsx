@@ -133,7 +133,7 @@ export const VerifyEmail = () => {
         if (res.token) {
           setAuthSession(res.token, res.user);
           sessionStorage.removeItem('chess_verify_email');
-          showToast('Email verified successfully! Welcome to Chess Magic.', 'success');
+          showToast('Email verified successfully! Welcome to ChessTourn.', 'success');
           navigate('/dashboard', { replace: true });
         } else {
           showToast('Email verified successfully! Please sign in.', 'success');
@@ -185,6 +185,11 @@ export const VerifyEmail = () => {
       setIsLocked(false);
       showToast('A new 6-digit verification code has been sent to your email.', 'success');
     } catch (err) {
+      const status = err.response?.status;
+      const retryAfter = err.response?.data?.retry_after;
+      if (status === 429 && typeof retryAfter === 'number') {
+        setResendCooldown(retryAfter);
+      }
       const serverMsg = err.response?.data?.error || err.userMessage;
       showToast(serverMsg || 'Failed to resend verification code.', 'error');
     } finally {
@@ -212,7 +217,7 @@ export const VerifyEmail = () => {
           <Link to="/" className="inline-block group focus:outline-none">
             <img
               src="/images/logo.png"
-              alt="Chess Magic Official Crest"
+              alt="ChessTourn Official Crest"
               className="h-12 w-auto object-contain drop-shadow-[0_4px_16px_rgba(232,194,122,0.3)] transition-transform group-hover:scale-105"
             />
           </Link>
@@ -238,6 +243,7 @@ export const VerifyEmail = () => {
         {errorMessage && (
           <div
             role="alert"
+            aria-live="assertive"
             className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-center gap-2 animate-in fade-in duration-200"
           >
             <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
@@ -258,13 +264,14 @@ export const VerifyEmail = () => {
             hasError={!!errorMessage}
             isShaking={isShaking}
             autoFocus={true}
+            idPrefix="verify"
           />
         </div>
 
         {/* Status Rows: Expiry Countdown & Attempts */}
         <div className="flex items-center justify-between text-xs px-2 text-zinc-400">
           {/* 10-Minute Expiry Countdown */}
-          <div className="flex items-center gap-1.5 font-mono">
+          <div className="flex items-center gap-1.5 font-mono" role="status" aria-live="polite">
             <Clock className="w-3.5 h-3.5 text-[#e8c27a]" />
             <span>
               Expires in:{' '}
@@ -278,9 +285,9 @@ export const VerifyEmail = () => {
 
           {/* Locked / Attempts Notice */}
           {isLocked ? (
-            <span className="text-rose-400 font-semibold">Code Locked</span>
+            <span role="status" aria-live="assertive" className="text-rose-400 font-semibold">Code Locked</span>
           ) : attemptsLeft !== null ? (
-            <span className="text-amber-400 font-medium">{attemptsLeft} attempts left</span>
+            <span role="status" aria-live="polite" className="text-amber-400 font-medium">{attemptsLeft} attempts left</span>
           ) : null}
         </div>
 

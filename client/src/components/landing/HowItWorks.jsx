@@ -36,7 +36,7 @@ export const HowItWorks = () => {
           SIMPLE & TRANSPARENT PROCESS
         </span>
         <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-medium text-white tracking-tight">
-          How Chess Magic Works
+          How ChessTourn Works
         </h2>
         <p className="text-zinc-400 text-xs sm:text-sm">
           From registration to the championship podium in four seamless steps.

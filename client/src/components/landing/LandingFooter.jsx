@@ -133,12 +133,12 @@ export const LandingFooter = () => {
 
         {/* Bottom Bar exactly matching the Reference Screenshot */}
         <div className="pt-8 border-t border-white/[0.08] flex flex-col md:flex-row items-center justify-between gap-6">
-          {/* Left: Official Chess Magic Emblem + Vertical Divider */}
+          {/* Left: Official ChessTourn Emblem + Vertical Divider */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <img
                 src="/images/logo.png"
-                alt="Chess Magic Emblem"
+                alt="ChessTourn Emblem"
                 className="w-8 h-8 object-contain drop-shadow-[0_0_8px_rgba(232,194,122,0.3)]"
                 onError={(e) => {
                   e.currentTarget.src = '/logo.png';
@@ -229,7 +229,7 @@ export const LandingFooter = () => {
 
         {/* Copyright notice */}
         <div className="pt-6 text-center text-[11px] text-zinc-500 font-sans">
-          © 2026 Chess Magic. All rights reserved.
+          © 2026 ChessTourn. All rights reserved.
         </div>
       </div>
     </footer>

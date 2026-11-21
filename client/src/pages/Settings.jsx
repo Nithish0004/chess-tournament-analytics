@@ -322,7 +322,7 @@ export const Settings = () => {
                   Appearance
                 </h3>
                 <p className="text-xs text-zinc-400">
-                  Customize the look and feel of Chess Magic
+                  Customize the look and feel of ChessTourn
                 </p>
               </div>
 

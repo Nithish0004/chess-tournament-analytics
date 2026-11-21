@@ -333,7 +333,7 @@ export const TournamentDetail = () => {
         <div className="absolute right-0 top-0 bottom-0 w-1/2 pointer-events-none overflow-hidden opacity-30 flex items-center justify-end pr-6">
           <img
             src="/images/logo-512.png"
-            alt="Chess Magic"
+            alt="ChessTourn"
             className="h-full max-h-48 w-auto object-contain object-right"
             onError={(e) => {
               e.currentTarget.src = '/images/logo.png';

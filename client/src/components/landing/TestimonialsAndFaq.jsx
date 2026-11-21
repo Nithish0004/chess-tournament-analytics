@@ -33,7 +33,7 @@ export const TestimonialsAndFaq = () => {
 
   const faqs = [
     {
-      q: 'Is Chess Magic free to join?',
+      q: 'Is ChessTourn free to join?',
       a: 'Yes! Registering an account, viewing active tournaments, inspecting championship leaderboards, and tracking your Elo rating history is 100% free for all players.',
     },
     {
@@ -66,7 +66,7 @@ export const TestimonialsAndFaq = () => {
             Trusted by Organizers & Players
           </h2>
           <p className="text-zinc-400 text-xs sm:text-sm">
-            Read what tournament directors and competitive competitors say about Chess Magic.
+            Read what tournament directors and competitive competitors say about ChessTourn.
           </p>
         </div>
 

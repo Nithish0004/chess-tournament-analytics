@@ -1,6 +1,6 @@
-# Chess Magic Demo Dataset Guide
+# ChessTourn Demo Dataset Guide
 
-This document describes how to seed, verify, and reset the complete demo dataset for Chess Magic, provides a reference table of all demo credentials, and outlines a 5-minute interactive presentation script.
+This document describes how to seed, verify, and reset the complete demo dataset for ChessTourn, provides a reference table of all demo credentials, and outlines a 5-minute interactive presentation script.
 
 ---
 
@@ -19,7 +19,7 @@ npm run verify:demo
 npm run reset:demo
 ```
 
-> **Database Safety**: All demo users use emails ending in `@demo.chessmagic.test`. The scripts strictly target demo records and will never alter or delete existing user accounts (`admin2006`, etc.) or production data.
+> **Database Safety**: All demo users use emails ending in `@demo.chesstourn.test`. The scripts strictly target demo records and will never alter or delete existing user accounts (`admin2006`, etc.) or production data.
 >
 > **Schema Note (`sql/05_demo_support.sql`)**: Tournament creator ownership (`created_by INT NULL` referencing `app_user.user_id`) is already natively implemented in the schema (`04_auth.sql`) and fully enforced by `authMiddleware.js`. Therefore, no additional or risky migration was needed.
 
@@ -33,15 +33,15 @@ All demo passwords use simple alphanumeric characters only (letters and digits).
 
 | Role | Username | Password | Email | Full Name | Country |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **ADMIN** | `admin_demo` | `AdminDemo123` | `admin_demo@demo.chessmagic.test` | Demo Administrator | India (IN) |
+| **ADMIN** | `admin_demo` | `AdminDemo123` | `admin_demo@demo.chesstourn.test` | Demo Administrator | India (IN) |
 
 ### 2.2 Organizers
 
 | Role | Username | Password | Email | Organization | Phone |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **ORGANIZER** | `org_rvce` | `OrgDemo123` | `org_rvce@demo.chessmagic.test` | RV College of Engineering | +919876543210 |
-| **ORGANIZER** | `org_mysuru` | `OrgDemo123` | `org_mysuru@demo.chessmagic.test` | Mysuru Chess Academy | +919876543211 |
-| **ORGANIZER** | `org_blitz` | `OrgDemo123` | `org_blitz@demo.chessmagic.test` | Bengaluru Blitz Club | +919876543212 |
+| **ORGANIZER** | `org_rvce` | `OrgDemo123` | `org_rvce@demo.chesstourn.test` | RV College of Engineering | +919876543210 |
+| **ORGANIZER** | `org_mysuru` | `OrgDemo123` | `org_mysuru@demo.chesstourn.test` | Mysuru Chess Academy | +919876543211 |
+| **ORGANIZER** | `org_blitz` | `OrgDemo123` | `org_blitz@demo.chesstourn.test` | Bengaluru Blitz Club | +919876543212 |
 
 ### 2.3 Players (20 Accounts)
 

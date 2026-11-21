@@ -304,7 +304,7 @@ export const Register = () => {
 
       if (res.token) {
         setAuthSession(res.token, res.user);
-        showToast('Account created successfully! Welcome to Chess Magic.', 'success');
+        showToast('Account created successfully! Welcome to ChessTourn.', 'success');
         navigate('/');
         return;
       }
@@ -410,7 +410,7 @@ export const Register = () => {
               <Link to="/" className="inline-block group focus:outline-none focus:ring-1 focus:ring-[#e8c27a]/50 rounded-lg">
                 <img
                   src="/images/logo.png"
-                  alt="Chess Magic Official Crest"
+                  alt="ChessTourn Official Crest"
                   className="h-10 sm:h-12 lg:h-14 w-auto object-contain drop-shadow-[0_4px_16px_rgba(232,194,122,0.3)] transition-transform duration-300 group-hover:scale-105"
                 />
               </Link>
@@ -568,7 +568,7 @@ export const Register = () => {
           {/* Bottom subtle aesthetic tag */}
           <div className="relative z-10 pt-4 flex items-center justify-between text-[11px] text-zinc-500 font-mono tracking-wider uppercase border-t border-[#262628]/60 mt-4">
             <span>OFFICIAL MEMBERSHIP</span>
-            <span className="text-[#e8c27a]/60">CHESS MAGIC</span>
+            <span className="text-[#e8c27a]/60">CHESSTOURN</span>
           </div>
         </div>
 
@@ -584,7 +584,7 @@ export const Register = () => {
                     Register Account
                   </h2>
                   <p className="text-zinc-400 text-xs sm:text-sm mt-1">
-                    Get started with Chess Magic
+                    Get started with ChessTourn
                   </p>
                   <div className="w-12 h-0.5 bg-gradient-to-r from-[#e8c27a] to-transparent mt-2.5" />
                 </div>

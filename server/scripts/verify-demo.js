@@ -5,7 +5,7 @@ import { resetDemo, DEMO_EMAIL_DOMAIN, DEMO_TOURNAMENT_NAMES } from './reset-dem
 
 const runVerification = async () => {
   console.log('===============================================================');
-  console.log('         CHESS MAGIC - DEMO VERIFICATION SUITE                 ');
+  console.log('         CHESSTOURN - DEMO VERIFICATION SUITE                  ');
   console.log('===============================================================\n');
 
   const conn = await pool.getConnection();

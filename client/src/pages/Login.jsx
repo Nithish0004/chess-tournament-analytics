@@ -208,7 +208,7 @@ export const Login = () => {
               <Link to="/" className="inline-block group focus:outline-none focus:ring-1 focus:ring-[#e8c27a]/50 rounded-lg">
                 <img
                   src="/images/logo.png"
-                  alt="Chess Magic Official Crest"
+                  alt="ChessTourn Official Crest"
                   className="h-10 sm:h-12 lg:h-14 w-auto object-contain drop-shadow-[0_4px_16px_rgba(232,194,122,0.3)] transition-transform duration-300 group-hover:scale-105"
                 />
               </Link>
@@ -346,7 +346,7 @@ export const Login = () => {
 
           {/* Bottom subtle aesthetic tag */}
           <div className="relative z-10 pt-4 flex items-center justify-between text-[11px] text-zinc-500 font-mono tracking-wider uppercase border-t border-[#262628]/60 mt-4">
-            <span>CHESS MAGIC CHAMPIONSHIP</span>
+            <span>CHESSTOURN CHAMPIONSHIP</span>
             <span className="text-[#e8c27a]/60">EST. 2026</span>
           </div>
         </div>

@@ -97,11 +97,11 @@ export const LandingNavbar = () => {
             <Link
               to="/"
               className="flex items-center gap-1.5 sm:gap-2.5 group transition-transform duration-200 active:scale-95"
-              aria-label="Chess Magic Home"
+              aria-label="ChessTourn Home"
             >
               <img
                 src="/images/logo.png"
-                alt="Chess Magic Logo"
+                alt="ChessTourn Logo"
                 className="w-7 h-7 sm:w-8 sm:h-8 lg:w-9 lg:h-9 object-contain drop-shadow-[0_0_10px_rgba(232,194,122,0.4)] shrink-0"
                 onError={(e) => {
                   e.currentTarget.src = '/logo.png';
@@ -109,7 +109,7 @@ export const LandingNavbar = () => {
               />
               <div className="flex flex-col">
                 <span className="font-serif font-bold text-xs sm:text-sm lg:text-base tracking-wider text-white group-hover:text-[#e8c27a] transition-colors leading-tight whitespace-nowrap">
-                  CHESS MAGIC
+                  CHESSTOURN
                 </span>
                 <span className="text-[9px] uppercase tracking-[0.2em] text-[#e8c27a] font-medium font-sans hidden xl:block">
                   Tournament Hub

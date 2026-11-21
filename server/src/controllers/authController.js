@@ -557,6 +557,15 @@ export const register = async (req, res, next) => {
       [username, email, passwordHash, role, playerId]
     );
 
+    // Audit log for manual registration (no passwords or secrets)
+    await logAudit({
+      actor_user_id: newUserId,
+      action: 'REGISTER',
+      entity: 'USER',
+      entity_id: newUserId,
+      details: { role, email, username }
+    }, conn);
+
     await conn.commit();
 
     // Issue 6-digit VERIFY_EMAIL OTP
@@ -689,6 +698,14 @@ export const verifyEmail = async (req, res, next) => {
         entity: 'USER',
         entity_id: user.user_id,
         details: { purpose: 'VERIFY_EMAIL' }
+      });
+
+      await logAudit({
+        actor_user_id: user.user_id,
+        action: 'EMAIL_VERIFIED',
+        entity: 'USER',
+        entity_id: user.user_id,
+        details: { email: user.email }
       });
 
       // Issue JWT token with login response shape
@@ -885,43 +902,6 @@ export const login = async (req, res, next) => {
             country_code: null,
             email_verified: 1,
             player_id: acc.player_id,
-            permissions
-          }
-        });
-      }
-
-      // Check admin_user table (legacy admin accounts)
-      const [adminRows] = await pool.query(
-        'SELECT admin_id, username, password_hash, role FROM admin_user WHERE LOWER(username) = LOWER(?)',
-        [identifier]
-      );
-      if (adminRows.length > 0) {
-        const admin = adminRows[0];
-        const isMatch = await bcrypt.compare(password, admin.password_hash);
-        if (!isMatch) {
-          return res.status(401).json({ error: 'Invalid email or password' });
-        }
-        const token = signToken({
-          user_id: admin.admin_id,
-          role: admin.role || 'ADMIN',
-          player_id: null
-        });
-        const permissions = getPermissions(admin.role || 'ADMIN', 'APPROVED');
-        return res.status(200).json({
-          message: 'Login successful',
-          token,
-          user: {
-            user_id: admin.admin_id,
-            account_id: admin.admin_id,
-            email: `${admin.username}@chess.admin`,
-            username: admin.username,
-            full_name: admin.username,
-            role: admin.role || 'ADMIN',
-            status: 'ACTIVE',
-            approval_status: 'APPROVED',
-            approval_note: null,
-            email_verified: 1,
-            player_id: null,
             permissions
           }
         });

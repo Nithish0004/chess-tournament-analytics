@@ -2,14 +2,14 @@ import React from 'react';
 import { Loader2 } from 'lucide-react';
 
 /**
- * Premium Chess Magic Branded Loading Screen
+ * Premium ChessTourn Branded Loading Screen
  *
  * @param {string} message - Caption text displayed below the emblem
  * @param {boolean} fullScreen - Whether to render as a fixed full viewport overlay
  * @param {'sm'|'md'|'lg'} size - Scale of the central animated emblem
  */
 export const LoadingScreen = ({
-  message = 'Loading Chess Magic...',
+  message = 'Loading ChessTourn...',
   fullScreen = false,
   size = 'md'
 }) => {
@@ -37,7 +37,7 @@ export const LoadingScreen = ({
         >
           <img
             src="/images/logo-512.png"
-            alt="Chess Magic"
+            alt="ChessTourn"
             className="w-full h-full object-contain filter contrast-105"
             onError={(e) => {
               if (e.currentTarget.src.includes('logo-512.png')) {
@@ -53,7 +53,7 @@ export const LoadingScreen = ({
       {/* Brand Header & Status Message */}
       <div className="space-y-1.5">
         <h2 className="font-condensed font-bold tracking-widest text-xs uppercase text-zinc-400">
-          CHESS MAGIC
+          CHESSTOURN
         </h2>
         <div className="flex items-center justify-center gap-2">
           <Loader2 className="w-3.5 h-3.5 text-[#C6A15B] animate-spin" />

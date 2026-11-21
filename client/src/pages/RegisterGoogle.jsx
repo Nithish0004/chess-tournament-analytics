@@ -230,7 +230,7 @@ export const RegisterGoogle = () => {
       if (res.token) {
         setAuthSession(res.token, res.user, true);
         sessionStorage.removeItem('chess_google_reg');
-        showToast('Account created successfully! Welcome to Chess Magic.', 'success');
+        showToast('Account created successfully! Welcome to ChessTourn.', 'success');
         navigate('/dashboard', { replace: true });
       } else {
         showToast('Registration complete. Please sign in.', 'success');

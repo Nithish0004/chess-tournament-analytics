@@ -22,7 +22,7 @@ export const RatingsExplainer = () => {
               How Ratings & Upsets Work
             </h2>
             <p className="text-zinc-400 text-xs sm:text-sm leading-relaxed">
-              Chess Magic implements the Elo rating system (K = 32). Your rating changes based on the strength of your opponent, not just whether you win or lose.
+              ChessTourn implements the Elo rating system (K = 32). Your rating changes based on the strength of your opponent, not just whether you win or lose.
             </p>
 
             {/* Key Principles */}

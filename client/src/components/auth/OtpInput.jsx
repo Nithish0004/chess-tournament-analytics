@@ -1,9 +1,10 @@
 import React, { useRef, useEffect } from 'react';
 
 /**
- * 6-box OTP input component.
+ * Accessible 6-box OTP input component.
  * Supports:
  * - 6 separate digit boxes
+ * - Focus automatically moves to the first empty box
  * - Auto-advance to next box on digit input
  * - Backspace jumps to previous box and clears
  * - Arrow keys left/right navigation
@@ -11,6 +12,8 @@ import React, { useRef, useEffect } from 'react';
  * - Mobile numeric keypad (inputMode="numeric", pattern="[0-9]*")
  * - autoComplete="one-time-code"
  * - Auto-submit via onComplete callback when 6th digit is entered
+ * - Keyboard navigable without a mouse
+ * - Screen reader labels and aria attributes
  * - Disabled/Locked state
  * - Shake animation on error
  */
@@ -22,16 +25,25 @@ export const OtpInput = ({
   isShaking = false,
   hasError = false,
   autoFocus = true,
-  length = 6
+  length = 6,
+  idPrefix = 'otp'
 }) => {
   const inputRefs = useRef([]);
 
   // Ensure digits array matches length
   const digits = Array.from({ length }, (_, i) => value[i] || '');
 
+  // Helper to find index of first empty box
+  const getFirstEmptyIndex = () => {
+    const emptyIndex = digits.findIndex((d) => !d);
+    return emptyIndex === -1 ? length - 1 : emptyIndex;
+  };
+
+  // On mount or when re-enabled, focus moves to the first empty box
   useEffect(() => {
-    if (autoFocus && !disabled && inputRefs.current[0]) {
-      inputRefs.current[0].focus();
+    if (autoFocus && !disabled) {
+      const targetIndex = getFirstEmptyIndex();
+      inputRefs.current[targetIndex]?.focus();
     }
   }, [autoFocus, disabled]);
 
@@ -41,7 +53,7 @@ export const OtpInput = ({
     const nextValue = chars.join('').slice(0, length);
     onChange?.(nextValue);
 
-    if (nextValue.length === length && !nextValue.includes('')) {
+    if (nextValue.length === length && !chars.slice(0, length).includes('')) {
       onComplete?.(nextValue);
     }
   };
@@ -62,6 +74,12 @@ export const OtpInput = ({
       return;
     }
 
+    if (e.key === 'Delete') {
+      setDigitAt(index, '');
+      e.preventDefault();
+      return;
+    }
+
     if (e.key === 'ArrowLeft' && index > 0) {
       inputRefs.current[index - 1]?.focus();
       e.preventDefault();
@@ -70,6 +88,19 @@ export const OtpInput = ({
 
     if (e.key === 'ArrowRight' && index < length - 1) {
       inputRefs.current[index + 1]?.focus();
+      e.preventDefault();
+      return;
+    }
+
+    if (e.key === 'Home') {
+      inputRefs.current[0]?.focus();
+      e.preventDefault();
+      return;
+    }
+
+    if (e.key === 'End') {
+      const lastIndex = Math.min(digits.filter(Boolean).length, length - 1);
+      inputRefs.current[lastIndex]?.focus();
       e.preventDefault();
       return;
     }
@@ -114,7 +145,7 @@ export const OtpInput = ({
     const nextValue = chars.join('').slice(0, length);
     onChange?.(nextValue);
 
-    // Focus box after last pasted digit, or the last box
+    // Focus first empty box after paste, or the last box
     const nextFocusIndex = Math.min(pastedDigits.length, length - 1);
     inputRefs.current[nextFocusIndex]?.focus();
 
@@ -123,8 +154,20 @@ export const OtpInput = ({
     }
   };
 
+  const handleFocus = (index) => {
+    // If user clicked ahead of an empty box, guide focus to the first empty box
+    const firstEmpty = digits.findIndex((d) => !d);
+    if (firstEmpty !== -1 && index > firstEmpty) {
+      inputRefs.current[firstEmpty]?.focus();
+    } else {
+      inputRefs.current[index]?.select();
+    }
+  };
+
   return (
     <div
+      role="group"
+      aria-label={`${length}-digit verification code`}
       className={`flex items-center justify-center gap-2 sm:gap-3 transition-transform duration-200 ${
         isShaking ? 'animate-shake' : ''
       }`}
@@ -132,9 +175,11 @@ export const OtpInput = ({
     >
       {Array.from({ length }).map((_, index) => {
         const isFilled = !!digits[index];
+        const inputId = `${idPrefix}-digit-${index + 1}`;
         return (
           <input
             key={index}
+            id={inputId}
             ref={(el) => (inputRefs.current[index] = el)}
             type="text"
             inputMode="numeric"
@@ -145,8 +190,10 @@ export const OtpInput = ({
             value={digits[index]}
             onChange={(e) => handleChange(index, e)}
             onKeyDown={(e) => handleKeyDown(index, e)}
-            onFocus={(e) => e.target.select()}
-            aria-label={`Digit ${index + 1}`}
+            onFocus={() => handleFocus(index)}
+            aria-label={`Digit ${index + 1} of ${length}`}
+            aria-required="true"
+            aria-invalid={hasError}
             className={`w-11 h-14 sm:w-13 sm:h-16 text-center font-mono text-2xl font-bold rounded-xl bg-[#18181A] border transition-all text-white focus:outline-none ${
               hasError
                 ? 'border-rose-500/80 bg-rose-500/5 text-rose-200 focus:border-rose-500 focus:ring-1 focus:ring-rose-500'

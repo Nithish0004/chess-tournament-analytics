@@ -1,6 +1,6 @@
 import { pool } from '../src/config/db.js';
 
-export const DEMO_EMAIL_DOMAIN = '@demo.chessmagic.test';
+export const DEMO_EMAIL_DOMAIN = '@demo.chesstourn.test';
 export const DEMO_TOURNAMENT_NAMES = [
   'Bengaluru Blitz',
   'Mysuru Rapid Cup',

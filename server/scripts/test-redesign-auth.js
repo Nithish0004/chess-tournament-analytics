@@ -50,7 +50,7 @@ const runVerification = async () => {
     // 3. Successful Player Registration
     console.log('\n3. Player Registration with Full Name, Username, Email, Password, Country');
     const regUsername = `player_${RUN_ID.toString().slice(-8)}`;
-    const regEmail = `player_${RUN_ID}@chessmagic.test`;
+    const regEmail = `player_${RUN_ID}@chesstourn.test`;
     const regPass = 'StrongPass123!';
 
     const regRes = await fetch(`${BASE_URL}/api/auth/register`, {
@@ -190,7 +190,7 @@ const runVerification = async () => {
     // 8. Concurrent Duplicate Registration Attempts
     console.log('\n8. Concurrent Registration Race Condition Safety');
     const raceUsername = `race_${RUN_ID.toString().slice(-8)}`;
-    const raceEmail = `race_${RUN_ID}@chessmagic.test`;
+    const raceEmail = `race_${RUN_ID}@chesstourn.test`;
 
     const makeReq = () => fetch(`${BASE_URL}/api/auth/register`, {
       method: 'POST',

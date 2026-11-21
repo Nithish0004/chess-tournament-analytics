@@ -220,7 +220,7 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
                   <div className="h-28 bg-[#171717] border-b border-[#2a2a2a] relative overflow-hidden flex items-center justify-center">
                     <img
                       src="/images/logo-512.png"
-                      alt="Chess Magic Emblem"
+                      alt="ChessTourn Emblem"
                       className="h-24 w-auto object-contain opacity-50 group-hover:opacity-85 transition-opacity duration-300"
                       onError={(e) => {
                         e.currentTarget.src = '/images/logo.png';
@@ -317,9 +317,12 @@ export const Tournaments = ({ defaultOpenCreate = false }) => {
                 className="w-full px-3.5 py-2 text-xs bg-[#171717] border border-[#303030] rounded-xl text-white focus:outline-none focus:border-[#C6A15B]"
               >
                 <option value="ROUND_ROBIN">Round Robin</option>
-                <option value="SWISS">Swiss System</option>
-                <option value="KNOCKOUT">Single Elimination</option>
+                <option value="SWISS" disabled>Swiss System (Coming later)</option>
+                <option value="KNOCKOUT" disabled>Single Elimination (Coming later)</option>
               </select>
+              <p className="text-[11px] text-zinc-500 mt-1">
+                Swiss and Knockout are coming later
+              </p>
             </div>
             <div>
               <label className="block text-xs font-medium text-zinc-300 mb-1.5">

@@ -14,7 +14,6 @@ import { Register } from './pages/Register';
 import { RegisterGoogle } from './pages/RegisterGoogle';
 import { VerifyEmail } from './pages/VerifyEmail';
 import { ForgotPassword } from './pages/ForgotPassword';
-import { ResetPassword } from './pages/ResetPassword';
 import { CompleteProfile } from './pages/CompleteProfile';
 import { ApprovalBanner } from './components/ApprovalBanner';
 import { Players } from './pages/Players';
@@ -136,7 +135,7 @@ const getPageMeta = (pathname) => {
     };
   }
   return {
-    title: 'Chess Magic',
+    title: 'ChessTourn',
     subtitle: 'Tournament Management & Performance Analytics'
   };
 };
@@ -170,7 +169,7 @@ function AppContent() {
         <Route path="/register/google" element={<RegisterGoogle />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/reset-password" element={<Navigate to="/forgot-password" replace />} />
         <Route path="/complete-profile" element={<CompleteProfile />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

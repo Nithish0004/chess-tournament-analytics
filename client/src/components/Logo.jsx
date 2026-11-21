@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 
 /**
- * Reusable Chess Magic Brand Logo Component
+ * Reusable ChessTourn Brand Logo Component
  *
  * @param {'full'|'horizontal'|'vertical'|'stacked'|'icon'|'emblem'|'badge'} variant - Layout style
  * @param {'xs'|'sm'|'md'|'lg'|'xl'|'2xl'} size - Emblem sizing
@@ -41,7 +41,7 @@ export const Logo = ({
     >
       <img
         src="/images/logo-512.png"
-        alt="Chess Magic Logo"
+        alt="ChessTourn Logo"
         className={`w-full h-full object-contain ${imageClassName}`}
         onError={(e) => {
           if (e.currentTarget.src.includes('logo-512.png')) {
@@ -60,7 +60,7 @@ export const Logo = ({
         <Link
           to={linkTo}
           className={`group inline-flex shrink-0 transition-transform hover:scale-105 ${className}`}
-          aria-label="Chess Magic Home"
+          aria-label="ChessTourn Home"
         >
           {emblemNode}
         </Link>
@@ -77,7 +77,7 @@ export const Logo = ({
         <span
           className={`font-condensed font-black tracking-[0.22em] uppercase text-white leading-tight mt-2 ${currentSize.text} group-hover:text-[#C6A15B] transition-colors`}
         >
-          CHESS MAGIC
+          CHESSTOURN
         </span>
         {subtitle && (
           <span className="text-[10px] text-zinc-400 font-mono tracking-wider uppercase font-semibold mt-0.5">
@@ -111,7 +111,7 @@ export const Logo = ({
         <span
           className={`font-condensed font-black tracking-widest uppercase text-white leading-tight ${currentSize.text} group-hover:text-[#C6A15B] transition-colors`}
         >
-          CHESS MAGIC
+          CHESSTOURN
         </span>
         {subtitle && (
           <span className="text-[10px] text-zinc-400 font-mono tracking-wider uppercase font-semibold mt-0.5 truncate">
@@ -129,7 +129,7 @@ export const Logo = ({
       >
         {emblemNode}
         <span className="font-condensed font-bold tracking-widest text-xs uppercase text-white">
-          CHESS MAGIC
+          CHESSTOURN
         </span>
       </div>
     );

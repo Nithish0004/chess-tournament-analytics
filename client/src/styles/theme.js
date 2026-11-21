@@ -1,5 +1,5 @@
 /**
- * Chess Magic Design System Tokens
+ * ChessTourn Design System Tokens
  * Reference: Chess_Magic_Tournament_Dashboard_Montage.png
  */
 

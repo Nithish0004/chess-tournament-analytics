@@ -31,7 +31,7 @@ export const CtaBand = () => {
           </h2>
 
           <p className="text-zinc-300 text-xs sm:text-base leading-relaxed font-sans max-w-lg mx-auto">
-            Whether you want to climb the Elo leaderboard or host tournaments, Chess Magic provides the tools to power your chess journey.
+            Whether you want to climb the Elo leaderboard or host tournaments, ChessTourn provides the tools to power your chess journey.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 pt-4">

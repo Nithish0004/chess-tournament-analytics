@@ -679,7 +679,7 @@ export const seedDemo = async () => {
     );
 
     console.log('\n===============================================================');
-    console.log('              CHESS MAGIC - DEMO SEED SUMMARY                 ');
+    console.log('              CHESSTOURN - DEMO SEED SUMMARY                  ');
     console.log('===============================================================');
     console.table([
       { Entity: 'Admin Account', Value: '1 (admin_demo / AdminDemo123)' },
